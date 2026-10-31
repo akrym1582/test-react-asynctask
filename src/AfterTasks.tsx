@@ -1,17 +1,55 @@
 /**
- * Reactの非同期入力確定を、保存などのイベント処理より先に完了させる共通部品です。
- * Context・タスク登録・useAfterTasksはこの1ファイルだけで利用できます。
- * 任意の入力Hook・UI・最新値getter・送信補助は別ファイルです。このファイルからは参照しません。
+ * 登録した処理の完了とReactの再レンダーを待ち、更新後のstateで保存などの後続処理を実行します。
+ * AfterTasksProvider・タスク登録・useAfterTasksは、この1ファイルだけで利用できます。
  * React以外の実行時依存はありません。
  *
- * 基本の流れ:
- * 1. useAfterTasksField（またはAfterTasksInput）が編集をdirty（未確定）として記録する。
- * 2. blurまたはrunAfterTasksでnormalizeを開始する。
- * 3. 最新の編集の結果だけをonCommitでReactのstateへ反映する。
- * 4. useAfterTasksが再レンダーを経由し、新しいstateを参照するactionを呼ぶ。
+ * 中心ファイルだけで使う基本の流れ:
+ * 1. 連携する入力欄と保存ボタンを、同じAfterTasksProviderの配下に配置する。
+ * 2. useAfterTasksでregisterAsyncTaskを取得し、onBlurなどで処理を登録する。
+ * 3. useAfterTasks(action, { onError })から取得したrunAfterTasksを、保存ボタンのonClickなどへ渡す。
+ * 4. runAfterTasksが登録タスクの完了を待ち、再レンダー後のactionを呼ぶ。
+ *    同じProvider配下の子孫が登録したタスクと、待機途中に追加されたタスクも対象となる。
+ *    blocking:falseの背景処理は保存の待機対象に含めない。
  *
- * 注意: 非同期処理の中で直接呼ばれたsetStateは取り消せません。
- * 競合防止が必要な入力は normalize/onCommit 形式を使ってください。
+ * 登録とstate反映:
+ * - 同期処理・非同期処理とも登録でき、戻り値なしで直接setStateする形でも利用できる。
+ * - 非同期処理は必ずawaitするかPromiseをreturnする。未登録のPromiseは自動検出しない。
+ * - 直接呼ぶsetStateは取消・期限切れ・置き換え後も実行され得る。
+ *   古い結果を反映させたくない場合は、処理から値を返して同期的なonCommitで反映する。
+ * - key省略時はUUIDで各登録を独立管理する。同じ固定keyの再登録は先行処理を置き換える。
+ *   取消はsignalによる中断要求であり、元のPromiseやサーバー処理を強制終了するものではない。
+ * - 失敗すると保存を止める。キー省略時の再試行では、以前の失敗をhandle.clearError()で解除できる。
+ *   画面全体の失敗を明示的に解除する場合はclearErrors()を使う。
+ *
+ * 実行時の注意:
+ * - runAfterTasksは既定でフォーカス中の要素をblurする。不要ならblurActiveElement:falseを指定する。
+ *   onBlurでは最初のawaitより前にregisterAsyncTaskを呼び、待機対象を確定させる。
+ * - isRunningは後続処理の待機・実行中、hasPendingTasksは登録タスクが未完了の状態を表す。
+ * - タスク・待機・後続処理のタイムアウトは既定でnull（無期限）。
+ * - runAfterTasksはvoid関数。保存後の処理はaction内に書き、await runAfterTasks()では待たない。
+ * - actionは更新後のレンダーのstateを読むが、action内のawait後に同じstate変数が自動更新されるわけではない。
+ *
+ * 任意部品（必要な場合だけ別ファイルから利用する）:
+ * - useAfterTasksField.ts: 編集をdirty（未確定）として管理し、blurや保存時にnormalizeしてonCommitへ渡す。
+ * - AfterTasksInput.tsx: 上記の入力管理を組み込んだ入力UI。
+ * - useLatestCommitted.ts: 最新のcommit済み値を取得するgetter。Providerなしでも利用できる。
+ * - useAfterTasksSubmit.ts: formのEnter・IME入力などを扱う送信補助。
+ * この中心ファイルから任意部品への依存はなく、通常のinputとonBlurだけでも利用できる。
+ *
+ * @example
+ * const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(
+ *   async () => { await save(value); },
+ *   { onError: error => setError(String(error)) },
+ * );
+ * // 入力欄のonBlurから、最初のawaitより前に登録します。
+ * const handleBlur = () => {
+ *   registerAsyncTask(({ signal }) => normalize(value, { signal }), {
+ *     key: "value",
+ *     onCommit: setValue,
+ *   });
+ * };
+ * // <input value={value} onChange={e => setValue(e.currentTarget.value)} onBlur={handleBlur} />
+ * // <button onClick={runAfterTasks} disabled={isRunning}>保存</button>
  */
 import {
   createContext,
