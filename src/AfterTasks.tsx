@@ -71,6 +71,15 @@ export type AfterTasksHandle<T> = {
   signal: AbortSignal;
   getStatus: () => AfterTasksStatus;
   cancel: () => void;
+  /**
+   * この登録の失敗だけを解除します。キー省略時の再試行でも、以前の失敗を解除できます。
+   * 他の登録の失敗は残します。取消や自動再実行は行いません。
+   * @example
+   * // 再試行ボタンで、失敗した登録を解除してから新たに登録します。
+   * failedHandle.clearError();
+   * const retry = registerAsyncTask(loadValue, { onCommit: setValue });
+   */
+  clearError: () => void;
 };
 /** blocking=falseは保存に無関係な背景処理用。送信データを変更する処理には使わないでください。 */
 export type AfterTasksOptions<T = unknown> = {
@@ -199,6 +208,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     actionTimeoutMs: duration(config.actionTimeoutMs, null),
   };
   const tasks = new Map<string | symbol, InternalTask>();
+  let blockingCount = 0;
   const failures = new Map<string | symbol, AfterTasksError>();
   const participants = new Set<AfterTasksParticipant>();
   const listeners = new Set<() => void>();
@@ -213,7 +223,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     for (const listener of [...listeners]) listener();
   };
   const publishAction = () => {
-    actionSnapshot = owner
+    const next = owner
       ? {
           isRunning: true,
           hasPendingTasks: tasks.size > 0,
@@ -223,6 +233,15 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       : tasks.size > 0
         ? { ...idleAction, hasPendingTasks: true }
         : idleAction;
+    // 公開状態が同じなら参照を維持し、購読Hookの再レンダーを抑えます。
+    // 内部待機と入力状態の購読には、公開状態が同じでも通知が必要です。
+    if (
+      next.isRunning !== actionSnapshot.isRunning ||
+      next.hasPendingTasks !== actionSnapshot.hasPendingTasks ||
+      next.phase !== actionSnapshot.phase ||
+      next.requestId !== actionSnapshot.requestId
+    )
+      actionSnapshot = next;
     notify();
   };
   const changed = () => {
@@ -292,6 +311,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       resolve = done;
     });
     const blocking = options.blocking !== false;
+    let ownError: AfterTasksError | undefined;
     const finish = (
       next: Exclude<AfterTasksStatus, "pending">,
       value?: T,
@@ -312,6 +332,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       status = next;
       clearTimeout(timer);
       if (tasks.get(key) === internal) tasks.delete(key);
+      if (blocking) blockingCount--;
       let error: AfterTasksError | undefined;
       if (next === "timedOut" || next === "rejected") {
         error = new AfterTasksError(
@@ -321,6 +342,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
             : "入力処理に失敗しました",
           { taskKey: key, cause },
         );
+        ownError = error;
         if (blocking) failures.set(key, error);
       } else if (next === "fulfilled") failures.delete(key);
       if (next === "cancelled" || next === "superseded" || next === "timedOut")
@@ -335,6 +357,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     };
     const internal: InternalTask = { blocking, cancel: (next) => finish(next) };
     tasks.set(key, internal);
+    if (blocking) blockingCount++;
     changed();
     if (timeout !== null) timer = setTimeout(() => finish("timedOut"), timeout);
     try {
@@ -350,13 +373,22 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       signal: controller.signal,
       getStatus: () => status,
       cancel: () => finish("cancelled"),
+      clearError: () => {
+        // 同じkeyで後から失敗した別登録のエラーは解除しません。
+        if (!ownError || failures.get(key) !== ownError) return;
+        failures.delete(key);
+        changed();
+      },
     };
   }
   const prepareParticipants = () =>
     participants.forEach((participant) => participant.prepare());
-  const hasPending = () =>
-    [...tasks.values()].some((task) => task.blocking) ||
-    [...participants].some((participant) => participant.hasPending());
+  const hasPending = () => {
+    if (blockingCount > 0) return true;
+    for (const participant of participants)
+      if (participant.hasPending()) return true;
+    return false;
+  };
   /**
    * dirty入力を確定し、blockingタスクがなくなるまで購読して待ちます。
    * Promise.allを一度だけ呼ぶ方法と違い、待機途中の追加・削除にも追従します。
@@ -745,8 +777,10 @@ function useAfterTasksExecution(
     },
     [store, fail],
   );
-  function runAfterTasks() {
-    if (!action) return;
+  const getExecution = useCommittedOptions({ enabled: !!action, waitTimeout });
+  const runAfterTasks = useCallback(() => {
+    const { enabled, waitTimeout } = getExecution();
+    if (!enabled) return;
     const owner = store.beginAction();
     if (!owner) return;
     const current: Request = {
@@ -798,7 +832,7 @@ function useAfterTasksExecution(
       pending.current = null;
       store.release(owner);
     }
-  }
+  }, [store, getExecution, getOptions, fail, prepare]);
   useEffect(() => {
     const current = pending.current;
     if (

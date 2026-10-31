@@ -848,3 +848,98 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 });
+
+// 確認する状況: 多数の入力が購読している状態で、pending件数だけが増減します。
+// 期待する結果: trueのままの通知では再描画せず、最後の完了ではfalseを表示します。
+it("公開状態が同じタスク増減では購読コンポーネントを再描画しない", async () => {
+  const renders = vi.fn();
+  let store!: ReturnType<typeof createAfterTasksStore>;
+  function View() {
+    store = useAfterTasks();
+    renders();
+    return <span>{String(store.hasPendingTasks)}</span>;
+  }
+  render(
+    <AfterTasksProvider>
+      <View />
+    </AfterTasksProvider>,
+  );
+  const a = deferred<void>();
+  const b = deferred<void>();
+  act(() => {
+    store.registerAsyncTask(() => a.promise);
+  });
+  const count = renders.mock.calls.length;
+  act(() => {
+    store.registerAsyncTask(() => b.promise);
+  });
+  expect(renders).toHaveBeenCalledTimes(count);
+  await act(async () => {
+    a.resolve();
+  });
+  expect(renders).toHaveBeenCalledTimes(count);
+  await act(async () => {
+    b.resolve();
+  });
+  expect(screen.getByText("false")).toBeTruthy();
+});
+
+// 確認する状況: state変更後にも同じイベント関数を使用します。
+// 期待する結果: 関数参照は安定し、保存には変更後のstateが渡ります。
+it("runAfterTasksの参照を維持したまま最新stateを保存する", async () => {
+  const save = vi.fn();
+  const refs: Array<() => void> = [];
+  function View() {
+    const [value, setValue] = useState(0);
+    const { runAfterTasks } = useAfterTasks(
+      () => {
+        save(value);
+      },
+      { onError: console.error },
+    );
+    refs.push(runAfterTasks);
+    return <button onClick={() => setValue(1)}>変更</button>;
+  }
+  render(
+    <AfterTasksProvider>
+      <View />
+    </AfterTasksProvider>,
+  );
+  fireEvent.click(screen.getByText("変更"));
+  expect(refs[refs.length - 1]).toBe(refs[0]);
+  act(() => refs[0]());
+  await waitFor(() => expect(save).toHaveBeenCalledWith(1));
+});
+
+// 確認する状況: 自動UUIDの登録が複数失敗し、個別に解除します。
+// 期待する結果: 他の登録の失敗は残り、全件解除後に待機が成功します。
+it("キー省略の失敗をハンドル単位で解除できる", async () => {
+  const store = createAfterTasksStore();
+  const a = store.registerAsyncTask(() => {
+    throw new Error("a");
+  });
+  const b = store.registerAsyncTask(() => {
+    throw new Error("b");
+  });
+  await Promise.all([a.result, b.result]);
+  a.clearError();
+  await expect(store.wait()).rejects.toThrow();
+  b.clearError();
+  await expect(store.wait()).resolves.toBeUndefined();
+});
+
+// 確認する状況: 同じkeyで再試行も失敗した後、古いハンドルを解除します。
+// 期待する結果: 新しい失敗を消さず、新しいハンドルからのみ解除できます。
+it("古いハンドルで新しい登録のエラーを解除しない", async () => {
+  const store = createAfterTasksStore();
+  const fail = () => {
+    throw new Error("失敗");
+  };
+  const a = store.registerAsyncTask(fail, { key: "value" });
+  const b = store.registerAsyncTask(fail, { key: "value" });
+  await Promise.all([a.result, b.result]);
+  a.clearError();
+  await expect(store.wait()).rejects.toThrow();
+  b.clearError();
+  await expect(store.wait()).resolves.toBeUndefined();
+});

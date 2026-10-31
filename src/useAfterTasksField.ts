@@ -118,7 +118,12 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
       field.current?.reset(value);
     }
   }, [resetKey, value]);
-  const snapshot = useAfterTasksFieldState(taskKey);
+  // 既に取得したstoreを使い、useAfterTasksを重複して購読しません。
+  const snapshot = useSyncExternalStore(
+    store.subscribe,
+    () => fields.getFieldSnapshot(taskKey),
+    () => cleanField,
+  );
   const change = useCallback(
     (input: string) => field.current?.change(input),
     [],
@@ -167,13 +172,14 @@ function synchronousCommit(result: unknown) {
 }
 function makeFieldStore(store: AfterTasksStore) {
   const fields = new Map<string, Field>();
+  const dirtyFields = new Set<Field>();
+  const pendingFields = new Set<Field>();
   let detach: (() => void) | undefined;
   const participant = {
-    prepare: () => fields.forEach((field) => field.commit()),
-    hasPending: () =>
-      [...fields.values()].some((field) =>
-        ["dirty", "pending"].includes(field.snapshot().phase),
-      ),
+    prepare: () => {
+      for (const field of [...dirtyFields]) field.commit();
+    },
+    hasPending: () => dirtyFields.size > 0 || pendingFields.size > 0,
     retryFailed: () =>
       fields.forEach((field) => {
         if (field.snapshot().phase === "error") field.commit(true);
@@ -199,6 +205,10 @@ function makeFieldStore(store: AfterTasksStore) {
     let snapshot: AfterTasksFieldSnapshot = cleanField;
     const set = (next: AfterTasksFieldSnapshot) => {
       snapshot = next;
+      dirtyFields.delete(field);
+      pendingFields.delete(field);
+      if (next.phase === "dirty") dirtyFields.add(field);
+      if (next.phase === "pending") pendingFields.add(field);
       store.notifyChange();
     };
     const reset = (input: string) => {

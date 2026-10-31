@@ -359,3 +359,25 @@ const { registerAsyncTask, runAfterTasks, isRunning, hasPendingTasks } =
 | requestId       | 保存要求の識別子。要求がない場合はnull。入力タスクのUUIDとは別            |
 
 中心ファイルのuseAfterTasksExecutionのreturnではspreadを使わず、全5項目を説明付きで列挙しています。
+
+### キー省略時の失敗を解除して再試行する
+
+キー省略時は登録ごとにUUIDが異なるため、別の登録が成功しても以前の失敗は残ります。
+再試行を受け付ける際は、失敗した登録のハンドルから`clearError()`を呼びます。
+他の入力の失敗まで解除せず、その登録だけを解除できます。
+
+```tsx
+const handle = registerAsyncTask(({ signal }) => normalize(input, { signal }), {
+  onCommit: setValue,
+});
+const result = await handle.result;
+if (result.status === "rejected" || result.status === "timedOut") {
+  // 再試行ボタンなどで、この解除と新しい登録を行います。
+  // handle.clearError();
+  // registerAsyncTask(...);
+}
+```
+
+`clearError()`は取消や再実行を行いません。同じ固定keyの別登録が後から失敗した場合、
+古いハンドルでは新しい失敗を解除できません。画面全体を明示的に回復させる場合は
+`clearErrors()`を使用します。同じkeyでの再登録は、従来どおり先行処理を置き換えます。

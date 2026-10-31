@@ -45,3 +45,12 @@ APIがthrow/rejectした場合はonErrorへ通知し、action終了後にisRunni
 中心ファイル・Provider・HookをAfterTasks.tsx / AfterTasksProvider / useAfterTasksへ統一しました。公開型、内部の実行Hook、任意の入力Hook・入力UI・送信補助、対応するテストファイル、コピー配布検証、README、AGENTS.mdも同じ名称に更新しています。登録・実行・状態の操作名はregisterAsyncTask / runAfterTasks / isRunning / hasPendingTasksを維持します。
 
 名称統一後も全57件、lint・整形・型チェック・5構成コピー検証・本番ビルドが成功しました。旧Hook・Provider・型名が利用できないこともコピー検証で確認しています。
+
+## レビュー後の性能改善
+
+- 公開snapshotの参照を状態変更時だけ更新し、pending件数のみの変化では購読コンポーネントが再描画されないことをテストしました。
+- blockingタスクは件数、任意入力Hookはdirty/pending集合で管理し、待機確認時の全タスク・全入力走査を削減しました。購読通知自体は待機と入力表示のため維持しています。
+- runAfterTasksの参照がstate変更後も同一で、保存処理は最新stateを読むことをテストしました。
+- 個別clearErrorの解除と、古いハンドルが後続登録の失敗を解除しないことをテストしました。
+- 型チェック、単体・結合テスト61件、コピー検証5構成が成功しました。大規模画面の実ブラウザー時間計測は未実施です。
+- 同じキーの順次実行は追加しません。同じキーは従来どおり置き換えます。
