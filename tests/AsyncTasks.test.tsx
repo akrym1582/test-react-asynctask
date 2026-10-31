@@ -906,3 +906,79 @@ describe("key省略の自動UUID登録と全件待機", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 });
+
+describe("登録タスクの実行状態taskBusy", () => {
+  // 確認する状況: 保存とは独立した背景タスクを登録し、成功・失敗・取消・期限切れでそれぞれ終了させます。
+  // 期待する結果: 背景タスクもpending中はtaskBusy=trueですがbusy=falseです。どの終了理由でもtaskBusyを解除します。
+  it.each(["fulfilled", "rejected", "cancelled", "timedOut"] as const)(
+    "背景タスクも実行状態へ含め終了時に解除する（%s）",
+    async (status) => {
+      vi.useFakeTimers();
+      const task = deferred<string>();
+      const store = createTaskStore();
+      const handle = store.registerAsyncTask(() => task.promise, {
+        blocking: false,
+        timeoutMs: status === "timedOut" ? 5 : null,
+      });
+      expect(store.taskBusy).toBe(true);
+      expect(store.busy).toBe(false);
+      if (status === "fulfilled") task.resolve("done");
+      else if (status === "rejected") task.reject(new Error("task failed"));
+      else if (status === "cancelled") handle.cancel();
+      else await vi.advanceTimersByTimeAsync(5);
+      expect((await handle.result).status).toBe(status);
+      expect(store.taskBusy).toBe(false);
+      expect(store.getSnapshot().taskBusy).toBe(false);
+      expect(store.busy).toBe(false);
+    },
+  );
+
+  // 確認する状況: タスク登録、保存要求、入力タスク完了、保存action完了を別々に発生させ、別の子から状態を購読します。
+  // 期待する結果: taskBusyとbusyは独立して変化し、登録専用のHookにも全段階の変化が伝わります。
+  it("全子孫でtaskBusyを共有し入力処理中と保存処理中を区別する", async () => {
+    const input = deferred<void>();
+    const saving = deferred<void>();
+    const save = vi.fn(() => saving.promise);
+    function Observer() {
+      const { taskBusy, busy } = useAsyncTasks();
+      return <output>{`${taskBusy}/${busy}`}</output>;
+    }
+    function Form() {
+      const { registerAsyncTask, runAfterTasks } = useAsyncTasks(save, {
+        onError: vi.fn(),
+      });
+      return (
+        <>
+          <button
+            onClick={() => {
+              registerAsyncTask(() => input.promise);
+            }}
+          >
+            入力処理を開始
+          </button>
+          <button onClick={runAfterTasks}>保存を要求</button>
+        </>
+      );
+    }
+    render(
+      <StrictMode>
+        <AsyncTasksProvider>
+          <Observer />
+          <Form />
+        </AsyncTasksProvider>
+      </StrictMode>,
+    );
+    const state = () => screen.getByRole("status").textContent;
+    expect(state()).toBe("false/false");
+    fireEvent.click(screen.getByText("入力処理を開始"));
+    expect(state()).toBe("true/false");
+    fireEvent.click(screen.getByText("保存を要求"));
+    expect(state()).toBe("true/true");
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => input.resolve());
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(state()).toBe("false/true");
+    await act(async () => saving.resolve());
+    expect(state()).toBe("false/false");
+  });
+});

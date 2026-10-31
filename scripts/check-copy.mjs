@@ -20,6 +20,7 @@ import { useTaskField } from "./AsyncTasks";
 import { useAsyncSubmit } from "./AsyncTasks";
 function Example() {
   const tasks = useAsyncTasks();
+  const registeredTasksAreRunning: boolean = tasks.taskBusy;
   tasks.registerAsyncTask(async () => "ok", {
     timeoutMs: null, onCommit: value => { const text: string = value; },
   });
@@ -33,10 +34,11 @@ function Example() {
   tasks.track("name", () => "ok");
   // @ts-expect-error registerという汎用名も提供しない
   tasks.register(Promise.resolve());
-  const { runAfterTasks, busy } = useAsyncTasks(() => {}, { onError: console.error });
+  const { runAfterTasks, busy, taskBusy } = useAsyncTasks(() => {}, { onError: console.error });
   // @ts-expect-error 登録だけの呼び出しには実行操作を公開しない
   tasks.runAfterTasks();
   const executor = useAsyncTasks(() => {}, { onError: console.error });
+  const pendingTasks: boolean = executor.taskBusy;
   // @ts-expect-error 旧名は提供しない
   executor.run();
   // @ts-expect-error 旧状態名は提供しない

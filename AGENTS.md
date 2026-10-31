@@ -26,6 +26,8 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 
 - `blurActiveElement`の既定値はtrueです。重複排除後、beforeWaitより前に現在のHTML要素をblurします。falseはフォーカスを維持します。SSRではdocumentを参照せず、対象がProviderのDOM範囲に限定されない点を説明してください。
 
+- `taskBusy`はpendingの登録タスクが1件以上ある状態です。背景処理も含めて全子孫へ共有し、dirty入力や保存actionだけの実行は含めません。`busy`は保存要求の待機・実行中を示します。blur直後のclickを妨げないよう保存ボタンの無効化にtaskBusyを使わないでください。
+
 ## 保持すべき動作
 
 - 単純なPromise待機だけでは古いclosureは更新されません。タスク完了後に再レンダーし、そのレンダーに対応するactionを呼びます。

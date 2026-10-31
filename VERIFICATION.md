@@ -25,7 +25,7 @@ Playwright 1.58.2のFirefox用`fill()`は内部でcompositionイベントを発�
 
 テストでは、期限とnullによる無期限待機、取消後の遅延完了、背景処理、入力の世代切替、dirty確定、項目別エラー、動的項目の破棄、保存結果不明と照会、冪等性fake、最新値getter、IME合成イベント、保存snapshot、SSRを確認しています。無期限待機の1時間経過はfake timerで検証します。
 
-最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・50件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
+最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・55件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
 
 ## ローカル環境と別途必要な確認
 
@@ -84,3 +84,9 @@ StrictMode下で未確定の入力値を用意し、blurのPromiseを意図的�
 登録APIをregisterAsyncTask(factory, options?)へ変更しました。options.keyを省略するとcrypto.randomUUIDで独立したIDを作り、複数の登録をすべて待機します。UUID APIがない環境では時刻と連番を使います。固定keyはoptions.keyで指定でき、入力の世代管理には引き続き固定keyを利用します。
 
 keyなしの2タスクが互いを置き換えず両方のonCommitを実行すること、別々の子孫から登録したタスクとclick後に追加したタスクを全件待って、全項目の更新後stateで保存することを検証しました。当初のblur→click要件の2パターンもkey省略で検証しています。全50件、lint・整形・型チェック・4構成のコピー検証・本番ビルドが成功しました。
+
+## taskBusyによる登録タスクの実行状態
+
+taskBusyを追加し、未完了の登録タスクが1件以上ある間trueとしました。背景タスクも含み、全子孫で共有します。busyは保存要求の待機・実行状態を維持します。保存actionだけの実行、dirty入力、取消・期限切れ後の元PromiseはtaskBusyに含みません。
+
+成功・失敗・取消・期限切れの各終了時に解除されること、登録専用Hookにも状態が伝わること、入力処理→保存待機→保存実行→終了の各段階でbusyと独立して変わることを検証しました。全55件、lint・整形・型チェック・4構成コピー検証・本番ビルドが成功しました。

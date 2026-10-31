@@ -117,16 +117,16 @@ import { TrackedInput } from "./TrackedInput";
 
 ## API
 
-| API                                                  | import元       | 用途                                                               |
-| ---------------------------------------------------- | -------------- | ------------------------------------------------------------------ |
-| AsyncTasksProvider                                   | AsyncTasks     | フォーム単位の管理範囲・初期設定                                   |
-| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks     | signalを準備してから処理を開始                                     |
-| useAsyncTasks(action, options)                       | AsyncTasks     | runAfterTasks/busy/isResultUnknown/phase/requestId/reconcileを取得 |
-| useLatestCommitted(value)                            | AsyncTasks     | 最新commit済み値を返す安定したgetter                               |
-| useAsyncField(options)                               | useAsyncField  | 入力確定・世代管理                                                 |
-| useTaskField(key)                                    | useAsyncField  | 入力のclean/dirty/pending/error状態を購読                          |
-| TrackedInput                                         | TrackedInput   | 入力Hookを組み込んだUI                                             |
-| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit | IME対応のformイベント群                                            |
+| API                                                  | import元       | 用途                                                                        |
+| ---------------------------------------------------- | -------------- | --------------------------------------------------------------------------- |
+| AsyncTasksProvider                                   | AsyncTasks     | フォーム単位の管理範囲・初期設定                                            |
+| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks     | signalを準備してから処理を開始                                              |
+| useAsyncTasks(action, options)                       | AsyncTasks     | runAfterTasks/busy/taskBusy/isResultUnknown/phase/requestId/reconcileを取得 |
+| useLatestCommitted(value)                            | AsyncTasks     | 最新commit済み値を返す安定したgetter                                        |
+| useAsyncField(options)                               | useAsyncField  | 入力確定・世代管理                                                          |
+| useTaskField(key)                                    | useAsyncField  | 入力のclean/dirty/pending/error状態を購読                                   |
+| TrackedInput                                         | TrackedInput   | 入力Hookを組み込んだUI                                                      |
+| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit | IME対応のformイベント群                                                     |
 
 タスク登録は`registerAsyncTask(factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
 
@@ -322,3 +322,22 @@ registerAsyncTask(({ signal }) => validate(input, { signal }));
 ```
 
 同じ処理の再登録で前の結果を無効化したい場合だけ、`{ key: "name" }`を指定します。自動UUIDでは各登録が独立しているため、前の登録を自動で無効化しません。UUID APIのない環境では時刻と連番による一意なIDを使います。background用のblocking:false、失敗・取消などの既存ルールは同じです。
+
+## taskBusyとbusy
+
+`taskBusy`は、未完了の登録タスクが1件でもある間trueです。keyなしで登録したタスクやblocking:falseの背景処理も含み、同じProviderの全子孫で共有します。引数なしのuseAsyncTasksからも購読できます。
+
+```tsx
+const { registerAsyncTask, runAfterTasks, busy, taskBusy, isResultUnknown } =
+  useAsyncTasks((context) => save(values, context), { onError: showError });
+// taskBusyは入力の処理中表示に使い、保存ボタンの無効化にはbusyを使います。
+```
+
+| 状態                                     | taskBusy | busy  |
+| ---------------------------------------- | -------- | ----- |
+| 入力タスクだけが実行中                   | true     | false |
+| 保存要求後、入力タスクを待っている       | true     | true  |
+| 入力タスク完了後、保存actionだけが実行中 | false    | true  |
+| すべて完了                               | false    | false |
+
+未確定入力(dirty)だけの状態はtaskBusyに含みません。タスクの取消・期限切れでは管理対象から外れるため、元のPromiseが残っていてもtaskBusyを解除します。blur直後に保存ボタンを無効化するとclickが届かなくなる場合があるので、ボタンのdisabledはbusy || isResultUnknownを使います。

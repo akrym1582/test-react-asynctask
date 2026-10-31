@@ -117,11 +117,13 @@ export type FieldSnapshot = Readonly<{
 const cleanField: FieldSnapshot = Object.freeze({ phase: "clean" });
 const idleAction: Readonly<{
   busy: boolean;
+  taskBusy: boolean;
   isResultUnknown: boolean;
   phase: ActionPhase;
   requestId: string | null;
 }> = Object.freeze({
   busy: false,
+  taskBusy: false,
   isResultUnknown: false,
   phase: "idle" as ActionPhase,
   requestId: null as string | null,
@@ -212,20 +214,24 @@ export function createTaskStore(config: TasksConfig = {}) {
   const notify = () => {
     for (const listener of [...listeners]) listener();
   };
-  const changed = () => {
-    revision++;
-    notify();
-  };
   const publishAction = () => {
     actionSnapshot = owner
       ? {
           busy: !owner.uncertain,
+          taskBusy: tasks.size > 0,
           isResultUnknown: owner.uncertain,
           phase: owner.phase,
           requestId: owner.id,
         }
-      : idleAction;
+      : tasks.size > 0
+        ? { ...idleAction, taskBusy: true }
+        : idleAction;
     notify();
+  };
+  const changed = () => {
+    revision++;
+    // タスクだけが変わった場合もsnapshotを更新し、登録専用Hookの購読先へ通知します。
+    publishAction();
   };
   const assertSuccess = () => {
     if (failures.size)
@@ -519,6 +525,14 @@ export function createTaskStore(config: TasksConfig = {}) {
     get busy() {
       return actionSnapshot.busy;
     },
+    /**
+     * 未完了の登録タスクが1件でもあればtrue。blocking:falseの背景処理も含みます。
+     * 未確定入力(dirty)や保存actionだけの実行は含みません。
+     * 取消・期限切れは管理対象から外れるため、元のPromiseが続いていてもfalseへ戻ります。
+     */
+    get taskBusy() {
+      return actionSnapshot.taskBusy;
+    },
     /** 保存結果が不明なため再送できない状態。入力待機のtimeoutだけではtrueになりません。 */
     get isResultUnknown() {
       return actionSnapshot.isResultUnknown;
@@ -618,10 +632,10 @@ export function AsyncTasksProvider({
 }
 /**
  * タスク登録・待機後の実行・共有状態を取得する公開Hookです。
- * 引数なしでは登録とbusy/isResultUnknownの参照に利用できます。
+ * 引数なしでは登録とbusy/taskBusy/isResultUnknownの参照に利用できます。
  * actionとoptionsを渡すとrunAfterTasksも取得できます。保存処理はHookの引数に定義し、
  * onClick={runAfterTasks}で実行します。actionは待機後の新しいレンダーのstateを参照します。
- * busyは待機/保存中、isResultUnknownは保存結果が不明で再送を止めている状態です。
+ * busyは待機/保存中、taskBusyは未完了の登録タスクあり、isResultUnknownは保存結果が不明で再送を止めている状態です。
  * 保存のタイムアウトや結果不明が対象で、入力待機のタイムアウトだけではtrueになりません。
  * runAfterTasksはvoid関数です。保存後の処理はaction内へ書きます。
  * Promiseの全自動検出は行いません。
@@ -725,7 +739,7 @@ export type AsyncTasksOptions = {
 /**
  * タスク完了と再レンダーを経由してactionを実行します。
  * runAfterTasksはイベント用のvoid関数で、await runAfterTasks()では保存完了を待てません。
- * busyは待機/保存中、isResultUnknownは保存結果が不明で再送を止めている状態です。
+ * busyは待機/保存中、taskBusyは未完了の登録タスクあり、isResultUnknownは保存結果が不明で再送を止めている状態です。
  * action内のawait後に同じclosureのstateが自動更新されるわけではありません。
  * @example
  * const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(async ({ signal, requestId }) => {
