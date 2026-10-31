@@ -57,7 +57,7 @@ const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } = useAsyncTask
   onChange={event => setName(event.currentTarget.value)}
   onBlur={event => {
     const input = event.currentTarget.value; // イベントの値は同期的に取得
-    registerAsyncTask("name", ({ signal }) => normalizeName(input, { signal }), {
+    registerAsyncTask(({ signal }) => normalizeName(input, { signal }), {
       onCommit: setName, // 有効な最新の結果だけをstateへ反映
     });
   }}
@@ -65,7 +65,7 @@ const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } = useAsyncTask
 <button type="button" onClick={runAfterTasks} disabled={busy || isResultUnknown}>保存</button>
 ```
 
-非同期関数は結果を返し、state更新は`onCommit`へ分けます。同じkeyで再登録すると古い結果を破棄します。次のblurより前の再編集でも古い結果を破棄したい場合は、次の入力Hookを追加します。
+非同期関数は結果を返し、state更新は`onCommit`へ分けます。key省略時は登録ごとにUUIDを自動生成し、すべての処理を独立して待ちます。必要な場合だけoptions.keyで固定keyを指定でき、同じkeyの再登録時には古い結果を破棄します。次のblurより前の再編集でも古い結果を破棄したい場合は、次の入力Hookを追加します。
 
 ## 任意の入力Hookを使う
 
@@ -117,23 +117,22 @@ import { TrackedInput } from "./TrackedInput";
 
 ## API
 
-| API                                                       | import元       | 用途                                                               |
-| --------------------------------------------------------- | -------------- | ------------------------------------------------------------------ |
-| AsyncTasksProvider                                        | AsyncTasks     | フォーム単位の管理範囲・初期設定                                   |
-| useAsyncTasks().registerAsyncTask(key, factory, options?) | AsyncTasks     | signalを準備してから処理を開始                                     |
-| useAsyncTasks(action, options)                            | AsyncTasks     | runAfterTasks/busy/isResultUnknown/phase/requestId/reconcileを取得 |
-| useLatestCommitted(value)                                 | AsyncTasks     | 最新commit済み値を返す安定したgetter                               |
-| useAsyncField(options)                                    | useAsyncField  | 入力確定・世代管理                                                 |
-| useTaskField(key)                                         | useAsyncField  | 入力のclean/dirty/pending/error状態を購読                          |
-| TrackedInput                                              | TrackedInput   | 入力Hookを組み込んだUI                                             |
-| useAsyncSubmit(runAfterTasks)                             | useAsyncSubmit | IME対応のformイベント群                                            |
+| API                                                  | import元       | 用途                                                               |
+| ---------------------------------------------------- | -------------- | ------------------------------------------------------------------ |
+| AsyncTasksProvider                                   | AsyncTasks     | フォーム単位の管理範囲・初期設定                                   |
+| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks     | signalを準備してから処理を開始                                     |
+| useAsyncTasks(action, options)                       | AsyncTasks     | runAfterTasks/busy/isResultUnknown/phase/requestId/reconcileを取得 |
+| useLatestCommitted(value)                            | AsyncTasks     | 最新commit済み値を返す安定したgetter                               |
+| useAsyncField(options)                               | useAsyncField  | 入力確定・世代管理                                                 |
+| useTaskField(key)                                    | useAsyncField  | 入力のclean/dirty/pending/error状態を購読                          |
+| TrackedInput                                         | TrackedInput   | 入力Hookを組み込んだUI                                             |
+| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit | IME対応のformイベント群                                            |
 
-タスク登録は`registerAsyncTask(key, factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
+タスク登録は`registerAsyncTask(factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
 
 ```tsx
 const tasks = useAsyncTasks();
 const handle = tasks.registerAsyncTask(
-  "name",
   ({ signal }) => fetch("/api/name", { signal }),
   { timeoutMs: 5000 },
 );
@@ -307,3 +306,19 @@ ESLintはflat configの`eslint.config.js`、Prettierは`.prettierrc.json`で設�
 | src/exampleSaveAdapter.ts | tests/exampleSaveAdapter.test.ts |
 
 フォームや複数部品の連携、SSRなどの結合テストはtests/integration/に配置します。例示コンポーネントは結合テストから検証します。tests/helpers.tsはPromiseの完了タイミングなどを制御するテスト用ヘルパーです。browser-tests/は実ブラウザーでの結合テストとして別配置を維持します。npm testで単体・結合の両方を実行します。
+
+## keyを省略した登録と全件待機
+
+```tsx
+registerAsyncTask(({ signal }) => normalize(input, { signal }), {
+  onCommit: setValue,
+});
+```
+
+keyは不要です。登録ごとにUUIDを自動生成し、同じProviderで登録された対象タスクをすべて待ちます。待機中に追加されたタスクも確認し、全件完了・state反映後のレンダーからclickに指定したactionを実行します。onCommitも不要なら第2引数自体を省略できます。
+
+```tsx
+registerAsyncTask(({ signal }) => validate(input, { signal }));
+```
+
+同じ処理の再登録で前の結果を無効化したい場合だけ、`{ key: "name" }`を指定します。自動UUIDでは各登録が独立しているため、前の登録を自動で無効化しません。UUID APIのない環境では時刻と連番による一意なIDを使います。background用のblocking:false、失敗・取消などの既存ルールは同じです。

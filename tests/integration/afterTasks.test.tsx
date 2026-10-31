@@ -41,7 +41,7 @@ function Harness({
     <>
       <button
         onClick={() =>
-          registerAsyncTask("value", () => task, { onCommit: setValue })
+          registerAsyncTask(() => task, { key: "value", onCommit: setValue })
         }
       >
         blur
@@ -187,7 +187,8 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
       useLayoutEffect(() => {
         if (value === "first" && !added.current) {
           added.current = true;
-          store.registerAsyncTask("second", () => second.promise, {
+          store.registerAsyncTask(() => second.promise, {
+            key: "second",
             onCommit: setValue,
           });
         }
@@ -196,7 +197,8 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
         <button
           disabled={busy}
           onClick={() => {
-            store.registerAsyncTask("first", () => first.promise, {
+            store.registerAsyncTask(() => first.promise, {
+              key: "first",
               onCommit: setValue,
             });
             runAfterTasks();

@@ -29,12 +29,12 @@ describe("タスクの登録・待機と実行制御", () => {
     const store = createTaskStore();
     const first = deferred<void>();
     const second = deferred<void>();
-    store.registerAsyncTask("first", () => first.promise);
+    store.registerAsyncTask(() => first.promise, { key: "first" });
     let finished = false;
     const waiting = store.wait().then(() => {
       finished = true;
     });
-    store.registerAsyncTask("second", () => second.promise);
+    store.registerAsyncTask(() => second.promise, { key: "second" });
     first.resolve();
     await Promise.resolve();
     expect(finished).toBe(false);
@@ -46,10 +46,12 @@ describe("タスクの登録・待機と実行制御", () => {
   // 期待する結果: 再度待機してもエラーは残り、同じkeyの成功後にだけ待機が正常終了します。
   it("同じ項目が成功するまで入力エラーを保持する", async () => {
     const store = createTaskStore();
-    store.registerAsyncTask("name", () => Promise.reject(new Error("invalid")));
+    store.registerAsyncTask(() => Promise.reject(new Error("invalid")), {
+      key: "name",
+    });
     await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
     await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
-    store.registerAsyncTask("name", () => Promise.resolve());
+    store.registerAsyncTask(() => Promise.resolve(), { key: "name" });
     await expect(store.wait()).resolves.toBeUndefined();
   });
   // 確認する状況: 要求Aを開始して解除し、要求Bの開始後にもう一度Aの解除を試みます。
@@ -72,8 +74,8 @@ describe("同じkeyのタスク置き換え", () => {
   it("置き換え前のタスクが遅れて失敗しても新しい成功を取り消さない", async () => {
     const store = createTaskStore();
     const old = deferred<void>();
-    store.registerAsyncTask("name", () => old.promise);
-    store.registerAsyncTask("name", () => Promise.resolve());
+    store.registerAsyncTask(() => old.promise, { key: "name" });
+    store.registerAsyncTask(() => Promise.resolve(), { key: "name" });
     await Promise.resolve();
     await Promise.resolve();
     old.reject(new Error("obsolete"));
@@ -88,7 +90,7 @@ describe("タスクの期限と入力の世代管理", () => {
       expect(() => createTaskStore({ taskTimeoutMs: n })).toThrow(RangeError);
     expect(() => createTaskStore({ taskTimeoutMs: null })).not.toThrow();
     expect(() =>
-      createTaskStore().registerAsyncTask("x", () => 1, { timeoutMs: 0 }),
+      createTaskStore().registerAsyncTask(() => 1, { key: "x", timeoutMs: 0 }),
     ).toThrow();
   });
   // 確認する状況: 入力処理の期限を10msに設定し、期限切れ後に元のPromiseを成功させます。
@@ -99,7 +101,8 @@ describe("タスクの期限と入力の世代管理", () => {
     const commit = vi.fn();
     const onTaskError = vi.fn();
     const store = createTaskStore({ taskTimeoutMs: 10, onTaskError });
-    const handle = store.registerAsyncTask("x", () => task.promise, {
+    const handle = store.registerAsyncTask(() => task.promise, {
+      key: "x",
       onCommit: commit,
     });
     await vi.advanceTimersByTimeAsync(10);
@@ -118,7 +121,7 @@ describe("タスクの期限と入力の世代管理", () => {
   it("取り消したタスクの遅い失敗を保存阻止のエラーにしない", async () => {
     const task = deferred<void>();
     const store = createTaskStore();
-    const h = store.registerAsyncTask("x", () => task.promise);
+    const h = store.registerAsyncTask(() => task.promise, { key: "x" });
     h.cancel();
     task.reject(new Error("late"));
     await Promise.resolve();
@@ -130,11 +133,11 @@ describe("タスクの期限と入力の世代管理", () => {
   it("タスクが増えても総待機期限を延長しない", async () => {
     vi.useFakeTimers();
     const store = createTaskStore({ taskTimeoutMs: null });
-    store.registerAsyncTask("a", never);
+    store.registerAsyncTask(never, { key: "a" });
     const wait = store.wait({ timeoutMs: 20 });
     const assertion = expect(wait).rejects.toThrow("タイムアウト");
     await vi.advanceTimersByTimeAsync(10);
-    store.registerAsyncTask("b", never);
+    store.registerAsyncTask(never, { key: "b" });
     await vi.advanceTimersByTimeAsync(10);
     await assertion;
     store.cancelInputs();
@@ -145,14 +148,13 @@ describe("タスクの期限と入力の世代管理", () => {
   it("背景タスクの未完了や失敗は保存待機を妨げない", async () => {
     const onTaskError = vi.fn();
     const store = createTaskStore({ onTaskError });
-    const h = store.registerAsyncTask("poll", never, { blocking: false });
+    const h = store.registerAsyncTask(never, { key: "poll", blocking: false });
     await store.wait();
     store.registerAsyncTask(
-      "background",
       () => {
         throw Error("background");
       },
-      { blocking: false },
+      { key: "background", blocking: false },
     );
     await store.wait();
     expect(onTaskError).toHaveBeenCalledTimes(1);
@@ -271,11 +273,14 @@ describe("タスクの期限と入力の世代管理", () => {
         throw Error("callback");
       },
     });
-    store.registerAsyncTask("x", () => {
-      throw Error("task");
-    });
+    store.registerAsyncTask(
+      () => {
+        throw Error("task");
+      },
+      { key: "x" },
+    );
     await expect(store.wait()).rejects.toThrow();
-    store.registerAsyncTask("x", () => 1);
+    store.registerAsyncTask(() => 1, { key: "x" });
     await store.wait();
     log.mockRestore();
   });
@@ -474,7 +479,7 @@ it("設定を省略したタスク登録と待機は無期限となる", async (
   vi.useFakeTimers();
   const task = deferred<void>();
   const store = createTaskStore();
-  store.registerAsyncTask("input", () => task.promise);
+  store.registerAsyncTask(() => task.promise, { key: "input" });
   let completed = false;
   const waiting = store.wait().then(() => {
     completed = true;
@@ -492,7 +497,8 @@ it("タスク個別のnullでProviderの有限期限を無効化する", async (
   vi.useFakeTimers();
   const task = deferred<string>();
   const store = createTaskStore({ taskTimeoutMs: 5 });
-  const handle = store.registerAsyncTask("x", () => task.promise, {
+  const handle = store.registerAsyncTask(() => task.promise, {
+    key: "x",
     timeoutMs: null,
   });
   await vi.advanceTimersByTimeAsync(3600000);
@@ -530,7 +536,10 @@ it.each([undefined, true, false])(
             aria-label="value"
             onBlur={() => {
               events.push("blur");
-              registerAsyncTask("name", () => task, { onCommit: setValue });
+              registerAsyncTask(() => task, {
+                key: "name",
+                onCommit: setValue,
+              });
               runAfterTasks(); // blurから再入しても、同じ要求を重複実行しない
             }}
           />
@@ -648,7 +657,7 @@ it("1つのHookから登録と実行を行い更新後のstateを保存する", 
     return (
       <button
         onClick={() => {
-          registerAsyncTask("name", () => input, { onCommit: setValue });
+          registerAsyncTask(() => input, { key: "name", onCommit: setValue });
           runAfterTasks();
         }}
       >
@@ -702,7 +711,6 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
                 events.push("blur-start");
                 const input = event.currentTarget.value;
                 registerAsyncTask(
-                  "value",
                   async () => {
                     // 実際の通信に相当する待機。ここでは完了タイミングをテストから制御します。
                     const normalized = await normalization.promise;
@@ -776,4 +784,125 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
       expect(onError).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("key省略の自動UUID登録と全件待機", () => {
+  // 確認する状況: keyを指定せず、未完了のタスクを2件続けて登録し、1件ずつ完了させます。
+  // 期待する結果: 後の登録が先の登録を置き換えず、両方のonCommitが実行され、最後の1件が終わるまで待機を続けます。
+  it("keyなしのタスクを独立して管理しすべての完了を待つ", async () => {
+    const first = deferred<string>();
+    const second = deferred<string>();
+    const commitFirst = vi.fn();
+    const commitSecond = vi.fn();
+    const store = createTaskStore();
+    const firstHandle = store.registerAsyncTask(() => first.promise, {
+      onCommit: commitFirst,
+    });
+    const secondHandle = store.registerAsyncTask(() => second.promise, {
+      onCommit: commitSecond,
+    });
+    let completed = false;
+    const waiting = store.wait().then(() => {
+      completed = true;
+    });
+    expect(firstHandle.getStatus()).toBe("pending");
+    expect(secondHandle.getStatus()).toBe("pending");
+    expect(firstHandle.signal.aborted).toBe(false);
+    first.resolve("first");
+    await firstHandle.result;
+    expect(commitFirst).toHaveBeenCalledExactlyOnceWith("first");
+    expect(completed).toBe(false);
+    second.resolve("second");
+    await waiting;
+    expect(commitSecond).toHaveBeenCalledExactlyOnceWith("second");
+    expect(completed).toBe(true);
+  });
+
+  // 確認する状況: 別々の子コンポーネントのblurでkeyなしタスクを登録し、clickで保存を要求します。
+  // 待機中には3つ目の子からもタスクを追加し、B→A→Cの順に完了させます。
+  // 期待する結果: A・Bだけでは保存せず、追加したCの完了とstate反映も待ち、全項目の最新値で保存を1回だけ呼びます。
+  it("子孫のblurタスクとclick後の追加タスクをすべて待って最新stateを保存する", async () => {
+    const a = deferred<string>();
+    const b = deferred<string>();
+    const c = deferred<string>();
+    const save = vi.fn();
+    const onError = vi.fn();
+    function Field({
+      label,
+      promise,
+      onCommit,
+    }: {
+      label: string;
+      promise: Promise<string>;
+      onCommit: (value: string) => void;
+    }) {
+      const { registerAsyncTask } = useAsyncTasks();
+      return (
+        <input
+          aria-label={label}
+          onBlur={() => {
+            registerAsyncTask(() => promise, { onCommit });
+          }}
+        />
+      );
+    }
+    function Form() {
+      const [values, setValues] = useState({ a: "", b: "", c: "" });
+      const { runAfterTasks } = useAsyncTasks(() => save(values), { onError });
+      return (
+        <>
+          <Field
+            label="項目A"
+            promise={a.promise}
+            onCommit={(value) =>
+              setValues((previous) => ({ ...previous, a: value }))
+            }
+          />
+          <Field
+            label="項目B"
+            promise={b.promise}
+            onCommit={(value) =>
+              setValues((previous) => ({ ...previous, b: value }))
+            }
+          />
+          <Field
+            label="項目C"
+            promise={c.promise}
+            onCommit={(value) =>
+              setValues((previous) => ({ ...previous, c: value }))
+            }
+          />
+          <button onClick={runAfterTasks}>全件の完了後に保存</button>
+          <output data-testid="all-values">{JSON.stringify(values)}</output>
+        </>
+      );
+    }
+    render(
+      <StrictMode>
+        <AsyncTasksProvider>
+          <Form />
+        </AsyncTasksProvider>
+      </StrictMode>,
+    );
+    fireEvent.blur(screen.getByLabelText("項目A"));
+    fireEvent.blur(screen.getByLabelText("項目B"));
+    fireEvent.click(screen.getByRole("button", { name: "全件の完了後に保存" }));
+    fireEvent.blur(screen.getByLabelText("項目C"));
+    await act(async () => b.resolve("B確定"));
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => a.resolve("A確定"));
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByTestId("all-values").textContent).toBe(
+      JSON.stringify({ a: "A確定", b: "B確定", c: "" }),
+    );
+    await act(async () => c.resolve("C確定"));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledExactlyOnceWith({
+        a: "A確定",
+        b: "B確定",
+        c: "C確定",
+      }),
+    );
+    expect(onError).not.toHaveBeenCalled();
+  });
 });

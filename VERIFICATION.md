@@ -25,7 +25,7 @@ Playwright 1.58.2のFirefox用`fill()`は内部でcompositionイベントを発�
 
 テストでは、期限とnullによる無期限待機、取消後の遅延完了、背景処理、入力の世代切替、dirty確定、項目別エラー、動的項目の破棄、保存結果不明と照会、冪等性fake、最新値getter、IME合成イベント、保存snapshot、SSRを確認しています。無期限待機の1時間経過はfake timerで検証します。
 
-最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・48件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
+最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・50件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
 
 ## ローカル環境と別途必要な確認
 
@@ -78,3 +78,9 @@ Effectから参照するfail/prepareをuseCallbackで安定させて依存配列
 tests/AsyncTasks.test.tsxへ、非同期blurの処理中にclickが到着するケースを追加しました。clickより先にblurを開始する場合と、フォーカスが残ったclickから既定の自動blurを行う場合の2パターンです。
 
 StrictMode下で未確定の入力値を用意し、blurのPromiseを意図的に未完了に保ちます。click後も保存されずbusyを維持し、Promise完了とonCommitによるstate更新を経て、正規化後の値で1回だけ保存することを確認しました。イベント順序も検証しています。lint・整形・型チェック・全48件のテストが成功しました。
+
+## key省略とUUIDによる全件管理
+
+登録APIをregisterAsyncTask(factory, options?)へ変更しました。options.keyを省略するとcrypto.randomUUIDで独立したIDを作り、複数の登録をすべて待機します。UUID APIがない環境では時刻と連番を使います。固定keyはoptions.keyで指定でき、入力の世代管理には引き続き固定keyを利用します。
+
+keyなしの2タスクが互いを置き換えず両方のonCommitを実行すること、別々の子孫から登録したタスクとclick後に追加したタスクを全件待って、全項目の更新後stateで保存することを検証しました。当初のblur→click要件の2パターンもkey省略で検証しています。全50件、lint・整形・型チェック・4構成のコピー検証・本番ビルドが成功しました。

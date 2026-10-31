@@ -77,6 +77,12 @@ export type TaskHandle<T> = {
 };
 /** blocking=falseは保存に無関係な背景処理用。送信データを変更する処理には使わないでください。 */
 export type TaskOptions<T = unknown> = {
+  /**
+   * 省略時は自動生成UUIDで独立登録します。keyなしのタスクはすべて待機対象となります。
+   * 同じ入力の古い結果を置き換えたい場合だけ、固定の文字列またはsymbolを指定します。
+   * 同じkeyを指定して再登録すると、以前の処理を中断要求して結果を無効化します。
+   */
+  key?: string | symbol;
   /** 省略時true。falseは保存に無関係な背景処理用で、完了待機・保存阻止の対象から外します。 */
   blocking?: boolean;
   /** このタスクの期限（ミリ秒）。省略時はProviderのtaskTimeoutMs、nullなら無期限です。 */
@@ -183,7 +189,7 @@ type ActionOwner = {
  * Reactに依存しない状態管理部分なので、単体テストでは直接使えます。
  * @example
  * const store = createTaskStore({ taskTimeoutMs: 5000 });
- * store.registerAsyncTask("input", () => loadSomething());
+ * store.registerAsyncTask(() => loadSomething());
  * await store.wait(); // 成功時だけここに進む。Reactのcommitを待つ用途ではない。
  */
 export function createTaskStore(config: TasksConfig = {}) {
@@ -230,13 +236,12 @@ export function createTaskStore(config: TasksConfig = {}) {
   };
   /**
    * 通信開始前にsignalを準備できるfactory形式。同期throwもタスクの失敗へ変換します。
-   * 同じkeyの旧処理はsuperseded（新しい処理で置換された）にして結果を無効化します。
-   * @param key 入力・処理を識別する名前。同じkeyの再登録は前の処理を無効化します。
+   * key省略時は自動UUIDで独立登録し、全件を待機します。固定keyの再登録時だけ古い結果を無効化します。
    * @param factory signalを受け取り処理を開始する関数。値またはPromiseを返します。
-   * @param options タスクの期限、保存待機の対象か、結果を反映する同期onCommitを指定します。
+   * @param options 省略可能。結果を反映する同期onCommit、期限、blocking、必要な場合だけ固定keyを指定します。
    * @returns result（rejectしない結果Promise）、signal、getStatus、cancelを持つハンドル。
    * @example
-   * const handle = tasks.registerAsyncTask("name", ({ signal }) =>
+   * const handle = tasks.registerAsyncTask(({ signal }) =>
    *   fetch("/api/name", { signal }).then(response => response.json()),
    *   { timeoutMs: 5000 },
    * );
@@ -245,12 +250,14 @@ export function createTaskStore(config: TasksConfig = {}) {
    * // handle.cancel() は中断要求です。サーバー側の処理停止までは保証しません。
    */
   function registerAsyncTask<T>(
-    key: string | symbol,
     factory: (context: { signal: AbortSignal }) => T | Promise<T>,
     options: TaskOptions<T> = {},
   ): TaskHandle<T> {
     if (disposed) throw new Error("AsyncTasks scope is disposed");
     const timeout = duration(options.timeoutMs, defaults.taskTimeoutMs);
+    // 通常は登録ごとにIDを作り、別の登録を置き換えず全件を待機します。
+    // requestId()はcrypto.randomUUIDを使い、非対応環境では時刻と連番で一意にします。
+    const key = options.key ?? requestId();
     tasks.get(key)?.cancel("superseded");
     const controller = new AbortController();
     let status: TaskStatus = "pending";
@@ -369,9 +376,9 @@ export function createTaskStore(config: TasksConfig = {}) {
         const current = getConfig();
         set({ phase: "pending" });
         handle = registerAsyncTask(
-          key,
           (context) => current.normalize(draft, context),
           {
+            key,
             timeoutMs: current.timeoutMs,
             onCommit(result) {
               if (!alive || generation !== ownGeneration) return;
@@ -625,7 +632,7 @@ export function AsyncTasksProvider({
  * return <button onClick={runAfterTasks} disabled={busy || isResultUnknown}>保存</button>;
  * @example
  * const tasks = useAsyncTasks();
- * tasks.registerAsyncTask("suggestions", ({ signal }) => fetch("/api/suggestions", { signal }), {
+ * tasks.registerAsyncTask(({ signal }) => fetch("/api/suggestions", { signal }), {
  *   blocking: false, // 保存対象のデータとは無関係な背景処理
  * });
  */

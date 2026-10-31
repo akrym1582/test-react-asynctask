@@ -18,7 +18,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 - 公開Hookは`useAsyncTasks`に統一します。引数なしは登録・共有状態参照用、actionとoptionsを指定した場合は`runAfterTasks`も返します。登録用呼び出しの戻り値の同一性を保ち、任意の入力Hookを不要に再mountさせないでください。
 - 実行名は`runAfterTasks`、保存結果不明の状態名は`isResultUnknown`です。`useAfterTasks`・`run`・`blocked`の互換APIは提供しません。
 
-- タスクの登録は`registerAsyncTask(key, factory, options?)`に一本化します。factoryは`{ signal }`を受け取り、結果を返します。state反映は同期的な`options.onCommit`へ分けます。
+- タスクの登録は`registerAsyncTask(factory, options?)`に一本化します。key省略時はUUIDを自動生成し、各登録を独立してすべて待機します。固定keyはoptions.keyで指定し、指定した場合だけ同じkeyの前の処理を置き換えます。factoryは`{ signal }`を受け取り、結果を返します。state反映は同期的な`options.onCommit`へ分けます。
 - 旧APIの互換性は維持しません。開始済みPromiseを直接渡す形式、`register`/`track`の別名、TrackedInputのasync `onBlur`形式、削除したexportを復活させないでください。
 - `TrackedInput`は`normalize`と`onCommit`が必須です。`useAsyncField`の無効化用null形式は不要です。動的入力は子コンポーネントのmount/unmountで扱います。
 - `runAfterTasks`はイベントハンドラーとして使うvoid関数です。`await runAfterTasks()`で保存終了を待てると説明しないでください。成功後の処理はaction内へ書きます。

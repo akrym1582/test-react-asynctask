@@ -4,7 +4,7 @@ import { AsyncTasksProvider, useAsyncTasks } from "./AsyncTasks";
 /**
  * 通常のinputから非同期処理を登録する、中心ファイルだけの使用例です。
  * TrackedInputもuseAsyncFieldも必要ありません。
- * 同じkeyで再登録すると古い結果を破棄します。blur前の再編集にも対応したい場合は、
+ * keyを省略した処理はすべて独立して待ちます。再編集時の古い結果も破棄したい場合は、
  * ExampleFormのuseAsyncField方式を使ってください。
  */
 export function PlainBlurExample({
@@ -57,14 +57,10 @@ function Fields({
         onBlur={(event) => {
           // SyntheticEventの値はawaitの前に読み取ります。
           const input = event.currentTarget.value;
-          registerAsyncTask(
-            "value",
-            ({ signal }) => normalize(input, { signal }),
-            {
-              // 取消・期限切れ・同じkeyでの再登録後は、このsetterを呼びません。
-              onCommit: setValue,
-            },
-          );
+          registerAsyncTask(({ signal }) => normalize(input, { signal }), {
+            // このタスクが取消・期限切れになった場合は、このsetterを呼びません。
+            onCommit: setValue,
+          });
         }}
       />
       <button

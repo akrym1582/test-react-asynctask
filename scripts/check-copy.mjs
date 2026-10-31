@@ -20,9 +20,13 @@ import { useTaskField } from "./AsyncTasks";
 import { useAsyncSubmit } from "./AsyncTasks";
 function Example() {
   const tasks = useAsyncTasks();
-  tasks.registerAsyncTask("name", async () => "ok", {
+  tasks.registerAsyncTask(async () => "ok", {
     timeoutMs: null, onCommit: value => { const text: string = value; },
   });
+  tasks.registerAsyncTask(async () => "ok");
+  tasks.registerAsyncTask(async () => "ok", { key: "name" });
+  // @ts-expect-error keyを第1引数にする旧形式は提供しない
+  tasks.registerAsyncTask("name", async () => "ok");
   // @ts-expect-error 開始済みPromiseを直接渡す旧形式は提供しない
   tasks.registerAsyncTask(Promise.resolve(), "name");
   // @ts-expect-error 旧名の別名は提供しない
