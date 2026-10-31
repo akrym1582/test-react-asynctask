@@ -1,7 +1,7 @@
 /**
  * Reactの非同期入力確定を、保存などのイベント処理より先に完了させる共通部品です。
  * Context・タスク登録・useAsyncTasksはこの1ファイルだけで利用できます。
- * 任意の入力Hook・TrackedInput・useAsyncSubmitは別ファイルです。このファイルからは参照しません。
+ * 任意の入力Hook・UI・最新値getter・送信補助は別ファイルです。このファイルからは参照しません。
  * React以外の実行時依存はありません。
  *
  * 基本の流れ:
@@ -109,19 +109,20 @@ export type ActionContext = {
   /** 1回の保存要求を識別するID。サーバーの重複排除・結果照会に利用します。 */
   requestId: string;
 };
-/** 入力の見た目に利用する状態。dirtyは「編集中で、まだ確定していない」を意味します。 */
-export type FieldSnapshot = Readonly<{
-  phase: "clean" | "dirty" | "pending" | "error" | "disposed";
-  error?: unknown;
-}>;
-const cleanField: FieldSnapshot = Object.freeze({ phase: "clean" });
-const idleAction: Readonly<{
+/** 同じProvider内のすべての利用箇所が購読する、読み取り専用の実行状態です。 */
+export type AsyncTasksSnapshot = Readonly<{
+  /** 保存要求を受け付けてから、入力待機・保存処理が終了するまでtrue。入力タスク単独の実行は含みません。 */
   busy: boolean;
+  /** 未完了の登録タスクが1件以上あればtrue。背景処理も含み、保存actionやdirty入力だけの状態は含みません。 */
   taskBusy: boolean;
+  /** 保存結果が不明で再送を止めている状態。保存開始前の入力エラー・待機期限切れではtrueになりません。 */
   isResultUnknown: boolean;
+  /** idle=要求なし、preparing=準備中、waiting=入力待機、ready=再レンダー待ち、executing=保存中、uncertain=保存結果不明。 */
   phase: ActionPhase;
+  /** 現在の保存要求のID。入力タスクのUUIDとは別で、要求がなければnull。結果不明の間は同じIDを保持します。 */
   requestId: string | null;
-}> = Object.freeze({
+}>;
+const idleAction: AsyncTasksSnapshot = Object.freeze({
   busy: false,
   taskBusy: false,
   isResultUnknown: false,
@@ -157,21 +158,16 @@ function requestId() {
   );
 }
 
-type FieldConfig = {
-  normalize: (
-    value: string,
-    context: { signal: AbortSignal },
-  ) => Promise<string> | string;
-  onCommit: (value: string) => void;
-  timeoutMs?: Timeout;
-};
-type Field = {
-  change: (value: string) => void;
-  reset: (value: string) => void;
-  sync: (value: string) => void;
-  commit: (retry?: boolean) => void;
+/** 任意機能をタスク待機へ接続するための内部契約です。通常の画面からは利用しません。 */
+export type TaskParticipant = {
+  /** 待機開始時や再確認時に、まだ登録されていない確定処理を開始します。 */
+  prepare: () => void;
+  /** 待機が必要な未確定状態を持つ場合はtrueです。 */
+  hasPending: () => boolean;
+  /** clearErrorsから任意の失敗した処理を再確定します。 */
+  retryFailed?: () => void;
+  /** Scope破棄時に入力等の所有状態と購読を片付けます。 */
   dispose: () => void;
-  snapshot: () => FieldSnapshot;
 };
 type InternalTask = {
   blocking: boolean;
@@ -202,7 +198,7 @@ export function createTaskStore(config: TasksConfig = {}) {
   };
   const tasks = new Map<string | symbol, InternalTask>();
   const failures = new Map<string | symbol, AsyncTaskError>();
-  const fields = new Map<string, Field>();
+  const participants = new Set<TaskParticipant>();
   const listeners = new Set<() => void>();
   // タスクの件数だけでは「追加されてすぐ完了した処理」を検出できません。
   // 条件が変わるたびにrevisionを進め、Hook側で再レンダーの必要性を判定します。
@@ -333,101 +329,11 @@ export function createTaskStore(config: TasksConfig = {}) {
       cancel: () => finish("cancelled"),
     };
   }
-  /**
-   * 入力1個の寿命と世代を管理します。fieldインスタンスが所有者tokenの役割も持ちます。
-   * 同じkeyで新しい入力がmountされても、古いcleanupは新しい入力を削除できません。
-   */
-  function mountField(
-    key: string,
-    value: string,
-    getConfig: () => FieldConfig,
-  ): Field {
-    if (fields.has(key)) throw new Error(`taskKeyが重複しています: ${key}`);
-    let draft = value;
-    let generation = 0;
-    let alive = true;
-    let handle: TaskHandle<string> | undefined;
-    let snapshot: FieldSnapshot = cleanField;
-    const set = (next: FieldSnapshot) => {
-      snapshot = next;
-      changed();
-    };
-    const reset = (input: string) => {
-      // blur時では遅いため、編集した瞬間に世代を変えます。
-      // これにより「Bを入力中なのにAの検索結果が戻って上書きする」ことを防ぎます。
-      generation++;
-      handle?.cancel();
-      handle = undefined;
-      draft = input;
-      failures.delete(key);
-      set({ phase: "dirty" });
-    };
-    const field: Field = {
-      snapshot: () => snapshot,
-      change: reset,
-      reset,
-      sync(input) {
-        if (input !== draft) reset(input);
-      },
-      commit(retry = false) {
-        if (
-          !alive ||
-          snapshot.phase === "pending" ||
-          (snapshot.phase !== "dirty" && !(retry && snapshot.phase === "error"))
-        )
-          return;
-        // この確定処理がどの編集に対応するかを記憶します。
-        // 待機中に再編集されるとgenerationが変わり、古い結果は破棄されます。
-        const ownGeneration = generation;
-        const current = getConfig();
-        set({ phase: "pending" });
-        handle = registerAsyncTask(
-          (context) => current.normalize(draft, context),
-          {
-            key,
-            timeoutMs: current.timeoutMs,
-            onCommit(result) {
-              if (!alive || generation !== ownGeneration) return;
-              if (typeof result !== "string")
-                throw new TypeError("normalizeはstringを返してください");
-              synchronous(getConfig().onCommit(result), "onCommit");
-              draft = result;
-            },
-          },
-        );
-        void handle.result.then((result) => {
-          if (!alive || generation !== ownGeneration) return;
-          if (result.status === "fulfilled") set(cleanField);
-          else if (
-            result.status === "cancelled" ||
-            result.status === "superseded"
-          )
-            set({ phase: "dirty" });
-          else set({ phase: "error", error: result.error });
-        });
-      },
-      dispose() {
-        if (!alive) return;
-        alive = false;
-        generation++;
-        handle?.cancel();
-        if (fields.get(key) === field) {
-          fields.delete(key);
-          failures.delete(key);
-        }
-        set({ phase: "disposed" });
-      },
-    };
-    fields.set(key, field);
-    changed();
-    return field;
-  }
-  const flushFields = () => fields.forEach((field) => field.commit());
+  const prepareParticipants = () =>
+    participants.forEach((participant) => participant.prepare());
   const hasPending = () =>
     [...tasks.values()].some((task) => task.blocking) ||
-    [...fields.values()].some((field) =>
-      ["dirty", "pending"].includes(field.snapshot().phase),
-    );
+    [...participants].some((participant) => participant.hasPending());
   /**
    * dirty入力を確定し、blockingタスクがなくなるまで購読して待ちます。
    * Promise.allを一度だけ呼ぶ方法と違い、待機途中の追加・削除にも追従します。
@@ -460,7 +366,7 @@ export function createTaskStore(config: TasksConfig = {}) {
             abort();
             return;
           }
-          flushFields();
+          prepareParticipants();
           if (!hasPending()) {
             assertSuccess();
             finish();
@@ -492,22 +398,38 @@ export function createTaskStore(config: TasksConfig = {}) {
     defaults,
     registerAsyncTask,
     wait,
-    flushFields,
     hasPending,
     assertSuccess,
-    mountField,
-    /** 全体エラーを解除し、managed入力の失敗は再確定します。通常は項目の再編集で回復します。 */
+    /** 全体エラーを解除し、接続された任意機能へ再確定を依頼します。通常は項目の再編集で回復します。 */
     clearErrors() {
       failures.clear();
-      fields.forEach((field) => {
-        if (field.snapshot().phase === "error") field.commit(true);
-      });
+      participants.forEach((participant) => participant.retryFailed?.());
       changed();
     },
-    getFieldSnapshot: (key: string) =>
-      fields.get(key)?.snapshot() ?? cleanField,
-    resetField(key: string, value: string) {
-      fields.get(key)?.reset(value);
+    /** @internal 任意機能が持つ未確定状態の変更を、待機処理と購読先へ通知します。 */
+    notifyChange: changed,
+    /**
+     * @internal 任意機能の編集・破棄時に、そのタスクだけのエラーを解除します。
+     * 中間状態で待機を完了させないよう、変更通知は任意機能が状態更新後にnotifyChangeで行います。
+     */
+    clearTaskError(key: string | symbol) {
+      failures.delete(key);
+    },
+    /**
+     * @internal 任意機能を待機・再確定・Scope破棄へ接続します。
+     * coreは入力UIの具体的な状態や世代管理を持たず、この契約だけを呼びます。
+     */
+    registerParticipant(participant: TaskParticipant) {
+      if (disposed) throw new Error("AsyncTasks scope is disposed");
+      participants.add(participant);
+      changed();
+      let active = true;
+      return () => {
+        if (!active) return;
+        active = false;
+        participants.delete(participant);
+        changed();
+      };
     },
     cancelInputs() {
       for (const task of [...tasks.values()])
@@ -600,7 +522,8 @@ export function createTaskStore(config: TasksConfig = {}) {
         queueMicrotask(() => {
           if (leases) return;
           disposed = true;
-          for (const field of [...fields.values()]) field.dispose();
+          for (const participant of [...participants]) participant.dispose();
+          participants.clear();
           for (const task of [...tasks.values()]) task.cancel("cancelled");
           owner?.controller.abort();
           changed();
@@ -612,6 +535,22 @@ export function createTaskStore(config: TasksConfig = {}) {
   return store;
 }
 export type TaskStore = ReturnType<typeof createTaskStore>;
+/** actionを指定したuseAsyncTasksから取得できる実行操作と状態です。 */
+export type TaskActionResult = AsyncTasksSnapshot & {
+  /**
+   * イベント用の実行予約関数。自動blurとbeforeWaitを行い、タスク完了・state反映後にactionを呼びます。
+   * 同じProviderの実行中・結果不明中の重複要求は受け付けません。戻り値はvoidで、awaitでは完了を待てません。
+   * @example <button onClick={runAfterTasks} disabled={busy || isResultUnknown}>保存</button>
+   */
+  runAfterTasks: () => void;
+  /**
+   * requestIdに対応する保存結果をサーバーへ照会する回復操作です。
+   * 元actionが終了済みで、照会結果がsavedまたはnot-savedの場合だけtrueを返して結果不明状態を解除します。
+   * unknown・ID不一致・元action未完了ではfalseを返します。照会失敗の例外は呼び出し側で扱ってください。
+   * @example await reconcile(requestId, id => adapter.lookup(id));
+   */
+  reconcile: TaskStore["reconcile"];
+};
 const Context = createContext<TaskStore | null>(null);
 /**
  * フォームごとに置く管理範囲です。この範囲内の入力を待ち、保存操作を1つに制限します。
@@ -661,7 +600,7 @@ export function useAsyncTasks(): TaskStore;
 export function useAsyncTasks(
   action: (context: ActionContext) => void | Promise<void>,
   options: AsyncTasksOptions,
-): TaskStore & ReturnType<typeof useTaskAction>;
+): TaskStore & TaskActionResult;
 export function useAsyncTasks(
   action?: (context: ActionContext) => void | Promise<void>,
   options?: AsyncTasksOptions,
@@ -678,18 +617,9 @@ export function useAsyncTasks(
   return action ? { ...store, ...execution } : store;
 }
 const registrationOptions: AsyncTasksOptions = { onError: console.error };
-/**
- * 最新のcommit済み値を読む安定したgetterを返します。
- * render中にrefを書き換えないため、途中で破棄されたレンダーの値を公開しません。
- * setState直後の値を即座に取得する関数ではありません。
- * @example
- * const getValues = useLatestCommitted(values);
- * const { runAfterTasks } = useAsyncTasks(async () => {
- *   await checkPermission();
- *   await save(getValues()); // checkPermission待機中の編集も含めて読む場合
- * }, { onError: console.error });
- */
-export function useLatestCommitted<T>(value: T): () => T {
+// coreのエラー通知・準備オプションを、破棄されたレンダーから読まないための内部getterです。
+// 公開の任意Hook(useLatestCommitted.ts)をimportせず、中心ファイル単独で動作させます。
+function useCommittedOptions<T>(value: T): () => T {
   const ref = useRef(value);
   useCommitEffect(() => {
     ref.current = value;
@@ -752,13 +682,13 @@ function useTaskAction(
   store: TaskStore,
   action: ((context: ActionContext) => void | Promise<void>) | undefined,
   options: AsyncTasksOptions,
-) {
+): TaskActionResult {
   const snapshot = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     () => idleAction,
   );
-  const getOptions = useLatestCommitted(options);
+  const getOptions = useCommittedOptions(options);
   const waitTimeout = duration(
     options.waitTimeoutMs,
     store.defaults.waitTimeoutMs,
@@ -942,5 +872,20 @@ function useTaskAction(
       }
     })();
   }, [revision, action, actionTimeout, store, fail, prepare]);
-  return { runAfterTasks, ...snapshot, reconcile: store.reconcile };
+  return {
+    /** 保存を予約します。登録タスクとstate反映を待ってから、最新レンダーのactionを1回実行します。 */
+    runAfterTasks,
+    /** 保存要求の待機・実行中。保存ボタンのdisabledにはbusy || isResultUnknownを使います。 */
+    busy: snapshot.busy,
+    /** 登録タスクの処理中表示用。blur直後のclickを妨げないよう、保存ボタンのdisabledには使いません。 */
+    taskBusy: snapshot.taskBusy,
+    /** サーバーで保存済みの可能性があり、結果照会まで再送できない状態です。 */
+    isResultUnknown: snapshot.isResultUnknown,
+    /** 準備・入力待機・保存実行・結果不明など、現在の段階を表示・診断するための値です。 */
+    phase: snapshot.phase,
+    /** この保存要求を識別するID。結果照会やサーバー側の重複排除へ渡します。要求がなければnullです。 */
+    requestId: snapshot.requestId,
+    /** 結果不明の要求を実際に照会して回復します。解除条件と戻り値はTaskActionResultの説明を参照してください。 */
+    reconcile: store.reconcile,
+  };
 }

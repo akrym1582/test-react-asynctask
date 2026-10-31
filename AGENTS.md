@@ -6,8 +6,9 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 
 ## ファイル構成と依存の方向
 
-- `src/AsyncTasks.tsx`が中心ファイルです。Context、タスク登録・待機、入力確定を待機へ統合する内部管理、`useAsyncTasks`、`useLatestCommitted`を持ちます。React以外の実行時importを追加しないでください。この1ファイルだけで利用できることを維持します。
-- `src/useAsyncField.ts`は任意の入力Hook群です。`useAsyncField`、`useTaskField`、`AsyncFieldOptions`をまとめます。中心ファイルだけに依存します。
+- `src/AsyncTasks.tsx`が中心ファイルです。Context、タスク登録・待機、任意機能を待機へ接続する内部契約、`useAsyncTasks`を持ちます。React以外の実行時importを追加しないでください。この1ファイルだけで利用できることを維持します。
+- `src/useAsyncField.ts`は任意の入力Hook群です。`useAsyncField`、`useTaskField`、`AsyncFieldOptions`をまとめます。中心ファイルと`useLatestCommitted.ts`に依存し、入力の世代・dirty・エラー状態の管理本体もここに置きます。
+- `src/useLatestCommitted.ts`は任意の最新commit値getterです。Reactだけに依存し、Providerなしで単独利用できます。中心ファイルは公開getterを参照せず、オプション参照用のprivate helperを持ちます。
 - `src/TrackedInput.tsx`は任意の入力UIです。`useAsyncField.ts`を利用し、確定処理を重複実装しません。
 - `src/useAsyncSubmit.ts`は任意のformイベント補助です。IME・Enter・明示クリックを扱い、タスク管理には依存しません。
 - 中心ファイルから任意部品をimport・再exportしないでください。利用例は必要なファイルから明示的にimportします。
@@ -41,6 +42,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 ## コメントと使用例
 
 - コメントとREADMEは初心者向けの日本語で書きます。「何をするか」だけでなく、「なぜ必要か」「呼び出すタイミング」も説明します。
+- useTaskActionの戻り値は全項目を明示し、型定義・returnの各プロパティに役割・状態変化・用途を説明してください。
 - 公開Hook・APIにはJSDocの使用例を付け、正しいimport先、同期/非同期の境界、nullの意味を示します。
 - 削除したAPIの使用例・移行用コードを残しません。説明・サンプル・テストを現在のAPIへ揃えます。
 - 利用者の画面に共通処理の内部実装を露出させません。
@@ -71,6 +73,6 @@ npm run test:browser
 
 CIはReact 18/19で型・単体・コピー検証を行い、Chromium/Firefox/WebKitでブラウザー操作を確認します。変更後は関連する検証を実行し、pushを依頼されている作業では最新コミットのCI結果まで確認します。
 
-`check:copy`は中心ファイル単独と任意部品の組み合わせを、他のsrcファイルをコピーせずに検証します。ブラウザーテスト失敗時はActionsの`playwright-failure-report`を確認できます。
+`check:copy`は中心ファイル単独、入力Hook、入力UI、getter単独、送信補助の5構成を、他のsrcファイルをコピーせずに検証します。ブラウザーテスト失敗時はActionsの`playwright-failure-report`を確認できます。
 
 未実行・起動失敗・実行中の検証を成功と報告しないでください。`VERIFICATION.md`には実際に確認した範囲と制約を記録します。CIを通すためにテストをskipしたり、検証対象の動作を削除したりしないでください。

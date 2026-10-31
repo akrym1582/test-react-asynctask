@@ -5,12 +5,13 @@
 
 ## 必要なファイルだけコピーする
 
-| 利用する機能                                           | コピーするファイル                    |
-| ------------------------------------------------------ | ------------------------------------- |
-| タスク登録・待機後のイベント実行                       | `AsyncTasks.tsx`だけ                  |
-| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useAsyncField.ts`             |
-| 入力UIも共通化する                                     | 上記2ファイル + `TrackedInput.tsx`    |
-| formのIME・Enter送信を補助する                         | 必要に応じて`useAsyncSubmit.ts`を追加 |
+| 利用する機能                                           | コピーするファイル                                  |
+| ------------------------------------------------------ | --------------------------------------------------- |
+| タスク登録・待機後のイベント実行                       | `AsyncTasks.tsx`だけ                                |
+| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAsyncField.ts` |
+| 入力UIも共通化する                                     | 上記3ファイル + `TrackedInput.tsx`                  |
+| 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）         |
+| formのIME・Enter送信を補助する                         | 必要に応じて`useAsyncSubmit.ts`を追加               |
 
 ```tsx
 // 必須の中心ファイル
@@ -19,9 +20,10 @@ import { AsyncTasksProvider, useAsyncTasks } from "./AsyncTasks";
 import { useAsyncField, useTaskField } from "./useAsyncField";
 import { TrackedInput } from "./TrackedInput";
 import { useAsyncSubmit } from "./useAsyncSubmit";
+import { useLatestCommitted } from "./useLatestCommitted";
 ```
 
-中心ファイルから任意ファイルをimport・再exportしません。中心側には、任意の入力が登録された場合にdirty（未確定）入力を保存前に確定するための共通管理を持たせています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
+中心ファイルから任意ファイルをimport・再exportしません。中心側は任意機能の準備・待機判定・破棄を呼び出す汎用の接続だけを持ちます。入力の世代・dirty・エラー表示の管理本体はuseAsyncField.tsへ集約しています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
 
 引数なしの`useAsyncTasks()`はタスク登録と共有状態の参照に使えます。保存処理と`onError`を渡すと、`runAfterTasks`も取得できます。保存処理はHookの引数として定義し、クリック時には`onClick={runAfterTasks}`で実行します。
 
@@ -117,16 +119,16 @@ import { TrackedInput } from "./TrackedInput";
 
 ## API
 
-| API                                                  | import元       | 用途                                                                        |
-| ---------------------------------------------------- | -------------- | --------------------------------------------------------------------------- |
-| AsyncTasksProvider                                   | AsyncTasks     | フォーム単位の管理範囲・初期設定                                            |
-| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks     | signalを準備してから処理を開始                                              |
-| useAsyncTasks(action, options)                       | AsyncTasks     | runAfterTasks/busy/taskBusy/isResultUnknown/phase/requestId/reconcileを取得 |
-| useLatestCommitted(value)                            | AsyncTasks     | 最新commit済み値を返す安定したgetter                                        |
-| useAsyncField(options)                               | useAsyncField  | 入力確定・世代管理                                                          |
-| useTaskField(key)                                    | useAsyncField  | 入力のclean/dirty/pending/error状態を購読                                   |
-| TrackedInput                                         | TrackedInput   | 入力Hookを組み込んだUI                                                      |
-| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit | IME対応のformイベント群                                                     |
+| API                                                  | import元           | 用途                                                                        |
+| ---------------------------------------------------- | ------------------ | --------------------------------------------------------------------------- |
+| AsyncTasksProvider                                   | AsyncTasks         | フォーム単位の管理範囲・初期設定                                            |
+| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks         | signalを準備してから処理を開始                                              |
+| useAsyncTasks(action, options)                       | AsyncTasks         | runAfterTasks/busy/taskBusy/isResultUnknown/phase/requestId/reconcileを取得 |
+| useLatestCommitted(value)                            | useLatestCommitted | 最新commit済み値を返す安定したgetter                                        |
+| useAsyncField(options)                               | useAsyncField      | 入力確定・世代管理                                                          |
+| useTaskField(key)                                    | useAsyncField      | 入力のclean/dirty/pending/error状態を購読                                   |
+| TrackedInput                                         | TrackedInput       | 入力Hookを組み込んだUI                                                      |
+| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit     | IME対応のformイベント群                                                     |
 
 タスク登録は`registerAsyncTask(factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
 
@@ -199,6 +201,8 @@ requestIdは同じ保存要求内で変わりません。サーバーがIdempote
 通常の保存はaction開始時のsnapshotを使います。action内でawaitしている間に変わったstateまで自動的に読み直すものではありません。
 
 ```tsx
+import { useLatestCommitted } from "./useLatestCommitted";
+
 const getValues = useLatestCommitted(values);
 const { runAfterTasks } = useAsyncTasks(
   async () => {
@@ -297,13 +301,14 @@ ESLintはflat configの`eslint.config.js`、Prettierは`.prettierrc.json`で設�
 
 単体テストはsrcの相対パスとファイル名に対応させます。例えばsrc/AsyncTasks.tsxのテストはtests/AsyncTasks.test.tsxです。srcにサブディレクトリを追加した場合も同じ階層を使います。
 
-| 実装                      | 単体テスト                       |
-| ------------------------- | -------------------------------- |
-| src/AsyncTasks.tsx        | tests/AsyncTasks.test.tsx        |
-| src/useAsyncField.ts      | tests/useAsyncField.test.tsx     |
-| src/TrackedInput.tsx      | tests/TrackedInput.test.tsx      |
-| src/useAsyncSubmit.ts     | tests/useAsyncSubmit.test.tsx    |
-| src/exampleSaveAdapter.ts | tests/exampleSaveAdapter.test.ts |
+| 実装                      | 単体テスト                        |
+| ------------------------- | --------------------------------- |
+| src/AsyncTasks.tsx        | tests/AsyncTasks.test.tsx         |
+| src/useAsyncField.ts      | tests/useAsyncField.test.tsx      |
+| src/TrackedInput.tsx      | tests/TrackedInput.test.tsx       |
+| src/useAsyncSubmit.ts     | tests/useAsyncSubmit.test.tsx     |
+| src/useLatestCommitted.ts | tests/useLatestCommitted.test.tsx |
+| src/exampleSaveAdapter.ts | tests/exampleSaveAdapter.test.ts  |
 
 フォームや複数部品の連携、SSRなどの結合テストはtests/integration/に配置します。例示コンポーネントは結合テストから検証します。tests/helpers.tsはPromiseの完了タイミングなどを制御するテスト用ヘルパーです。browser-tests/は実ブラウザーでの結合テストとして別配置を維持します。npm testで単体・結合の両方を実行します。
 
@@ -341,3 +346,19 @@ const { registerAsyncTask, runAfterTasks, busy, taskBusy, isResultUnknown } =
 | すべて完了                               | false    | false |
 
 未確定入力(dirty)だけの状態はtaskBusyに含みません。タスクの取消・期限切れでは管理対象から外れるため、元のPromiseが残っていてもtaskBusyを解除します。blur直後に保存ボタンを無効化するとclickが届かなくなる場合があるので、ボタンのdisabledはbusy || isResultUnknownを使います。
+
+## useAsyncTasksの戻り値
+
+戻り値の型はTaskActionResultとAsyncTasksSnapshotで公開し、各プロパティにも説明コメントを付けています。
+
+| 項目            | 意味と利用場面                                                            |
+| --------------- | ------------------------------------------------------------------------- |
+| runAfterTasks   | イベントから実行を予約するvoid関数。タスクとstate反映を待ってactionを呼ぶ |
+| busy            | 保存要求の入力待機・保存実行中。ボタンの無効化に使う                      |
+| taskBusy        | 未完了の登録タスクあり。入力処理中の表示に使う                            |
+| isResultUnknown | 保存結果が不明で再送を止めている状態                                      |
+| phase           | idle/preparing/waiting/ready/executing/uncertainの現在段階                |
+| requestId       | 保存要求の識別子。要求がない場合はnull。入力タスクのUUIDとは別            |
+| reconcile       | 元の保存終了後、実際の照会で結果が確定した場合だけ結果不明状態を解除する  |
+
+中心ファイルのuseTaskActionのreturnではspreadを使わず、全7項目を説明付きで列挙しています。

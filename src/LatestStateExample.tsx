@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useAsyncTasks, useLatestCommitted } from "./AsyncTasks";
+import { useAsyncTasks } from "./AsyncTasks";
+import { useLatestCommitted } from "./useLatestCommitted";
 
 /** 親にAsyncTasksProviderを置いて利用する、getter方式だけの小さな例。 */
 export function LatestStateExample({

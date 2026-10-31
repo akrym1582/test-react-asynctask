@@ -1,5 +1,5 @@
 /**
- * 任意の入力UI部品です。AsyncTasks.tsx、useAsyncField.tsと一緒にコピーします。
+ * 任意の入力UI部品です。AsyncTasks.tsx、useLatestCommitted.ts、useAsyncField.tsと一緒にコピーします。
  * 通常のinput + useAsyncFieldを使う場合は、このファイルは不要です。
  * UIから入力Hook、入力Hookから中心ファイルへ依存し、逆向きのimportは行いません。
  */

@@ -18,9 +18,13 @@ import { useAsyncField } from "./AsyncTasks";
 import { useTaskField } from "./AsyncTasks";
 // @ts-expect-error formイベント補助も任意ファイルに置く
 import { useAsyncSubmit } from "./AsyncTasks";
+// @ts-expect-error 最新値getterも任意ファイルに置く
+import { useLatestCommitted } from "./AsyncTasks";
 function Example() {
   const tasks = useAsyncTasks();
   const registeredTasksAreRunning: boolean = tasks.taskBusy;
+  // @ts-expect-error 任意の入力管理本体を中心ファイルに戻さない
+  tasks.mountField("name", "", () => ({}));
   tasks.registerAsyncTask(async () => "ok", {
     timeoutMs: null, onCommit: value => { const text: string = value; },
   });
@@ -48,7 +52,7 @@ function Example() {
   },
   {
     name: "fields",
-    files: ["AsyncTasks.tsx", "useAsyncField.ts"],
+    files: ["AsyncTasks.tsx", "useLatestCommitted.ts", "useAsyncField.ts"],
     usage: `
 import { useAsyncField, useTaskField } from "./useAsyncField";
 function Example() {
@@ -61,7 +65,12 @@ function Example() {
   },
   {
     name: "input",
-    files: ["AsyncTasks.tsx", "useAsyncField.ts", "TrackedInput.tsx"],
+    files: [
+      "AsyncTasks.tsx",
+      "useLatestCommitted.ts",
+      "useAsyncField.ts",
+      "TrackedInput.tsx",
+    ],
     usage: `
 import { TrackedInput } from "./TrackedInput";
 const input = <TrackedInput taskKey="name" value="" normalize={v => v} onCommit={() => {}} />;
@@ -70,6 +79,16 @@ const oldInput = <TrackedInput taskKey="name" onBlur={async () => {}} />;
 // @ts-expect-error 現行形式にonBlurを混在させない
 const mixedInput = <TrackedInput taskKey="name" value="" normalize={v => v} onCommit={() => {}} onBlur={() => {}} />;
 `,
+  },
+  {
+    name: "latest-value",
+    files: ["useLatestCommitted.ts"],
+    usage: `
+import { useLatestCommitted } from "./useLatestCommitted";
+function Example() {
+  const getValue = useLatestCommitted("value");
+  return <span>{getValue()}</span>;
+}`,
   },
   {
     name: "submit",

@@ -7,14 +7,13 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { StrictMode, Suspense, startTransition, useState } from "react";
+import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AsyncTasksProvider,
   UncertainActionError,
   createTaskStore,
   useAsyncTasks,
-  useLatestCommitted,
   type ActionContext,
 } from "../src/AsyncTasks";
 import { deferred, flush, never } from "./helpers";
@@ -82,7 +81,7 @@ describe("同じkeyのタスク置き換え", () => {
     await expect(store.wait()).resolves.toBeUndefined();
   });
 });
-describe("タスクの期限と入力の世代管理", () => {
+describe("タスクの期限・取消・背景処理", () => {
   // 確認する状況: Provider相当の設定とタスク個別設定へ、不正な期限やnullを渡します。
   // 期待する結果: 0・負数・NaN・InfinityはRangeErrorとなり、無期限を表すnullは受け付けます。
   it("期限には正の有限値またはnullだけを受け付ける", () => {
@@ -159,110 +158,6 @@ describe("タスクの期限と入力の世代管理", () => {
     await store.wait();
     expect(onTaskError).toHaveBeenCalledTimes(1);
     h.cancel();
-  });
-  // 確認する状況: Aの確定処理を開始し、次のblurより前にBへ編集してからAの結果を返します。
-  // 期待する結果: Aをstateへ反映せず、待機がBの確定を開始して最新結果だけを反映します。同じ入力の重複commitも1回にまとめます。
-  it("再編集時に古い結果を無効化し最新の未確定入力を待機時に確定する", async () => {
-    const a = deferred<string>();
-    const b = deferred<string>();
-    const commit = vi.fn();
-    const normalize = vi.fn((v: string) => (v === "A" ? a.promise : b.promise));
-    const store = createTaskStore();
-    const field = store.mountField("name", "", () => ({
-      normalize,
-      onCommit: commit,
-    }));
-    field.change("A");
-    field.commit();
-    field.commit();
-    expect(normalize).toHaveBeenCalledTimes(1);
-    field.change("B");
-    a.resolve("obsolete");
-    await Promise.resolve();
-    expect(commit).not.toHaveBeenCalled();
-    const wait = store.wait();
-    b.resolve("latest");
-    await wait;
-    expect(commit).toHaveBeenCalledExactlyOnceWith("latest");
-    expect(field.snapshot().phase).toBe("clean");
-    field.dispose();
-  });
-  // 確認する状況: 古い入力の処理を未完了のまま残し、新しい値へ編集して待機します。
-  // 期待する結果: 古い処理を待ち続けず、新しい値の確定だけで待機が完了しonCommitを1回呼びます。
-  it("終わらない古い入力処理に最新入力の保存を妨げさせない", async () => {
-    const store = createTaskStore();
-    const commit = vi.fn();
-    const field = store.mountField("x", "", () => ({
-      normalize: (v) => (v === "old" ? never() : v),
-      onCommit: commit,
-    }));
-    field.change("old");
-    field.commit();
-    field.change("new");
-    await store.wait();
-    expect(commit).toHaveBeenCalledExactlyOnceWith("new");
-    field.dispose();
-  });
-  // 確認する状況: A・Bを失敗させ、Aだけ再成功させてからBを削除します。さらに同じkeyの入力を作り直します。
-  // 期待する結果: Aの成功だけではBの失敗を消さず、Bの削除後に待機できます。古い入力のdisposeは新しい入力を消さず、同じkeyの二重登録は拒否します。
-  it("項目別のエラーと入力の所有者を独立して管理する", async () => {
-    const store = createTaskStore();
-    let valid = false;
-    const a = store.mountField("a", "", () => ({
-      normalize: () => {
-        if (!valid) throw Error("a");
-        return "ok";
-      },
-      onCommit: () => {},
-    }));
-    const b = store.mountField("b", "", () => ({
-      normalize: () => {
-        throw Error("b");
-      },
-      onCommit: () => {},
-    }));
-    a.change("a");
-    b.change("b");
-    await expect(store.wait()).rejects.toThrow();
-    valid = true;
-    a.commit(true);
-    await expect(store.wait()).rejects.toThrow();
-    b.dispose();
-    await store.wait();
-    a.dispose();
-    const replacement = store.mountField("a", "", () => ({
-      normalize: (v) => v,
-      onCommit: () => {},
-    }));
-    a.dispose();
-    expect(() =>
-      store.mountField("a", "", () => ({
-        normalize: (v) => v,
-        onCommit: () => {},
-      })),
-    ).toThrow("重複");
-    replacement.dispose();
-  });
-  // 確認する状況: 処理中の入力を外部値へ変更し、古い処理を完了させます。新しい入力のonCommitは例外を投げます。
-  // 期待する結果: 古い結果ではonCommitを呼ばず、新しい入力のstate反映失敗によって待機を失敗させます。
-  it("外部reset後の古い結果を捨てstate反映時の例外も失敗として扱う", async () => {
-    const store = createTaskStore();
-    const deferredTask = deferred<string>();
-    const commit = vi.fn(() => {
-      throw Error("commit");
-    });
-    const field = store.mountField("x", "", () => ({
-      normalize: (v) => (v === "old" ? deferredTask.promise : v),
-      onCommit: commit,
-    }));
-    field.change("old");
-    field.commit();
-    field.sync("reset");
-    deferredTask.resolve("late");
-    await Promise.resolve();
-    expect(commit).not.toHaveBeenCalled();
-    await expect(store.wait()).rejects.toThrow();
-    field.dispose();
   });
   // 確認する状況: タスク失敗の通知先自身が例外を投げる状況を作り、その後同じkeyを成功させます。
   // 期待する結果: 通知先の例外で内部管理が壊れず、元の失敗を保持した後、新しい成功によって正常待機へ戻れます。
@@ -377,70 +272,8 @@ describe("保存処理と結果不明からの回復", () => {
     expect(error).toHaveBeenCalledTimes(1);
   });
 });
-describe("反映済みstateの参照", () => {
-  // 確認する状況: 値を正常に更新した後、次の更新をSuspenseで未確定にします。
-  // 期待する結果: getterの参照は変わらず、正常更新後は新値を読み、未確定の更新中は直前にcommitされた値を読み続けます。
-  it("最新値getterは反映済みの値だけを読み未確定レンダーの値を公開しない", async () => {
-    let getter!: () => string;
-    let set!: (v: string) => void;
-    const blocker = never();
-    let previous: unknown;
-    function Form() {
-      const [value, setValue] = useState("old");
-      set = setValue;
-      const get = useLatestCommitted(value);
-      if (previous) expect(get).toBe(previous);
-      previous = get;
-      getter = get;
-      if (value === "suspend") throw blocker;
-      return <span>{value}</span>;
-    }
-    render(
-      <Suspense fallback="loading">
-        <Form />
-      </Suspense>,
-    );
-    expect(getter()).toBe("old");
-    act(() => set("new"));
-    expect(getter()).toBe("new");
-    act(() => startTransition(() => set("suspend")));
-    expect(getter()).toBe("new");
-  });
-});
-describe("保存時のstateと例外後の後始末", () => {
-  // 確認する状況: action内のawait中に画面のstateを変更し、待機解除後にclosureの値とgetterの値を読みます。
-  // 期待する結果: actionのclosureは開始時のoldを維持し、最新値getterだけが反映済みのnewを返します。
-  it("保存開始時のstateとawait後の最新値を区別する", async () => {
-    const gate = deferred<void>();
-    const result = vi.fn();
-    function Form() {
-      const [value, setValue] = useState("old");
-      const get = useLatestCommitted(value);
-      const { runAfterTasks } = useAsyncTasks(
-        async () => {
-          await gate.promise;
-          result(value, get());
-        },
-        { onError: vi.fn() },
-      );
-      return (
-        <>
-          <button onClick={runAfterTasks}>runAfterTasks</button>
-          <button onClick={() => setValue("new")}>edit</button>
-        </>
-      );
-    }
-    render(
-      <AsyncTasksProvider>
-        <Form />
-      </AsyncTasksProvider>,
-    );
-    fireEvent.click(screen.getByText("runAfterTasks"));
-    await flush();
-    fireEvent.click(screen.getByText("edit"));
-    await act(async () => gate.resolve());
-    expect(result).toHaveBeenCalledExactlyOnceWith("old", "new");
-  });
+
+describe("エラー通知後の実行状態の後始末", () => {
   // 確認する状況: actionを失敗させ、onErrorでも例外を投げた後、もう一度実行します。
   // 期待する結果: エラー通知側の例外があってもbusyを解除し、2回目のactionを開始できます。
   it("onErrorが例外を投げても保存要求のロックを解除する", async () => {

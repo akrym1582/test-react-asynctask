@@ -1,6 +1,6 @@
 /**
  * 入力の確定と状態表示を行う任意のHook群です。
- * AsyncTasks.tsxとこのファイルをコピーすると、通常のinputで利用できます。
+ * AsyncTasks.tsx・useLatestCommitted.tsとこのファイルをコピーすると、通常のinputで利用できます。
  * Contextで直接タスクを登録するだけなら、このファイルは不要です。
  */
 import {
@@ -12,16 +12,21 @@ import {
 } from "react";
 import {
   useAsyncTasks,
-  useLatestCommitted,
-  type FieldSnapshot,
   type TaskStore,
   type Timeout,
+  type TaskHandle,
 } from "./AsyncTasks";
+import { useLatestCommitted } from "./useLatestCommitted";
 
 // ブラウザーではDOM反映直後に設定を更新し、SSRではlayout effectの警告を避けます。
 const useCommitEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 // SSR用のsnapshotは同じオブジェクトを返し、購読による不要な再レンダーを避けます。
+/** 任意の入力管理が公開する状態。dirtyは編集中の未確定値です。 */
+export type FieldSnapshot = Readonly<{
+  phase: "clean" | "dirty" | "pending" | "error" | "disposed";
+  error?: unknown;
+}>;
 const cleanField: FieldSnapshot = Object.freeze({ phase: "clean" });
 
 /**
@@ -34,9 +39,10 @@ const cleanField: FieldSnapshot = Object.freeze({ phase: "clean" });
  */
 export function useTaskField(key: string): FieldSnapshot {
   const store = useAsyncTasks();
+  const fields = createFieldStore(store);
   return useSyncExternalStore(
     store.subscribe,
-    () => store.getFieldSnapshot(key),
+    () => fields.getFieldSnapshot(key),
     () => cleanField,
   );
 }
@@ -80,6 +86,7 @@ export type AsyncFieldOptions = {
  */
 export function useAsyncField(options: AsyncFieldOptions) {
   const store = useAsyncTasks();
+  const fields = createFieldStore(store);
   const { taskKey, value, resetKey, timeoutMs } = options;
   if (
     timeoutMs !== undefined &&
@@ -87,21 +94,20 @@ export function useAsyncField(options: AsyncFieldOptions) {
     (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
   )
     throw new RangeError("期限には正の有限値かnullを指定してください");
-  // ReturnTypeで、ContextのmountFieldが返す入力管理オブジェクトの型を利用します。
-  const field = useRef<ReturnType<TaskStore["mountField"]> | null>(null);
+  const field = useRef<Field | null>(null);
   const getOptions = useLatestCommitted(options);
   useCommitEffect(() => {
     const current = getOptions();
     if (typeof current.value !== "string")
       throw new TypeError("入力にはstringのvalueが必要です");
-    const mounted = store.mountField(taskKey, current.value, getOptions);
+    const mounted = fields.mountField(taskKey, current.value, getOptions);
     field.current = mounted;
     return () => {
       // 画面から消えた入力の遅い結果が、新しい入力を上書きしないようにします。
       mounted.dispose();
       if (field.current === mounted) field.current = null;
     };
-  }, [store, taskKey, getOptions]);
+  }, [fields, taskKey, getOptions]);
   useCommitEffect(() => {
     field.current?.sync(value);
   }, [value]);
@@ -120,4 +126,162 @@ export function useAsyncField(options: AsyncFieldOptions) {
   const commit = useCallback(() => field.current?.commit(true), []);
   const reset = useCallback((input: string) => field.current?.reset(input), []);
   return { change, commit, reset, ...snapshot };
+}
+
+type FieldConfig = {
+  normalize: (
+    value: string,
+    context: { signal: AbortSignal },
+  ) => Promise<string> | string;
+  onCommit: (value: string) => void;
+  timeoutMs?: Timeout;
+};
+type Field = {
+  change: (value: string) => void;
+  reset: (value: string) => void;
+  sync: (value: string) => void;
+  commit: (retry?: boolean) => void;
+  dispose: () => void;
+  snapshot: () => FieldSnapshot;
+};
+
+type FieldStore = ReturnType<typeof makeFieldStore>;
+const stores = new WeakMap<TaskStore, FieldStore>();
+/**
+ * @internal 同じProvider内の入力Hookが共有する、任意の入力管理本体です。
+ * storeの作成だけではcoreを変更しません。mountFieldはcommit後のEffectから呼びます。
+ */
+export function createFieldStore(store: TaskStore): FieldStore {
+  let manager = stores.get(store);
+  if (!manager) {
+    manager = makeFieldStore(store);
+    stores.set(store, manager);
+  }
+  return manager;
+}
+function synchronousCommit(result: unknown) {
+  if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+    void Promise.resolve(result).catch(() => {});
+    throw new TypeError("onCommitは同期関数で指定してください");
+  }
+}
+function makeFieldStore(store: TaskStore) {
+  const fields = new Map<string, Field>();
+  let detach: (() => void) | undefined;
+  const participant = {
+    prepare: () => fields.forEach((field) => field.commit()),
+    hasPending: () =>
+      [...fields.values()].some((field) =>
+        ["dirty", "pending"].includes(field.snapshot().phase),
+      ),
+    retryFailed: () =>
+      fields.forEach((field) => {
+        if (field.snapshot().phase === "error") field.commit(true);
+      }),
+    dispose: () => {
+      for (const field of [...fields.values()]) field.dispose();
+    },
+  };
+  /**
+   * 入力1個の寿命と世代を管理します。fieldインスタンスが所有者tokenの役割も持ちます。
+   * 同じkeyで新しい入力がmountされても、古いcleanupは新しい入力を削除できません。
+   */
+  function mountField(
+    key: string,
+    value: string,
+    getConfig: () => FieldConfig,
+  ): Field {
+    if (fields.has(key)) throw new Error(`taskKeyが重複しています: ${key}`);
+    let draft = value;
+    let generation = 0;
+    let alive = true;
+    let handle: TaskHandle<string> | undefined;
+    let snapshot: FieldSnapshot = cleanField;
+    const set = (next: FieldSnapshot) => {
+      snapshot = next;
+      store.notifyChange();
+    };
+    const reset = (input: string) => {
+      // blur時では遅いため、編集した瞬間に世代を変えます。
+      // これにより「Bを入力中なのにAの検索結果が戻って上書きする」ことを防ぎます。
+      generation++;
+      handle?.cancel();
+      handle = undefined;
+      draft = input;
+      store.clearTaskError(key);
+      set({ phase: "dirty" });
+    };
+    const field: Field = {
+      snapshot: () => snapshot,
+      change: reset,
+      reset,
+      sync(input) {
+        if (input !== draft) reset(input);
+      },
+      commit(retry = false) {
+        if (
+          !alive ||
+          snapshot.phase === "pending" ||
+          (snapshot.phase !== "dirty" && !(retry && snapshot.phase === "error"))
+        )
+          return;
+        // この確定処理がどの編集に対応するかを記憶します。
+        // 待機中に再編集されるとgenerationが変わり、古い結果は破棄されます。
+        const ownGeneration = generation;
+        const current = getConfig();
+        set({ phase: "pending" });
+        handle = store.registerAsyncTask(
+          (context) => current.normalize(draft, context),
+          {
+            key,
+            timeoutMs: current.timeoutMs,
+            onCommit(result) {
+              if (!alive || generation !== ownGeneration) return;
+              if (typeof result !== "string")
+                throw new TypeError("normalizeはstringを返してください");
+              synchronousCommit(getConfig().onCommit(result));
+              draft = result;
+            },
+          },
+        );
+        void handle.result.then((result) => {
+          if (!alive || generation !== ownGeneration) return;
+          if (result.status === "fulfilled") set(cleanField);
+          else if (
+            result.status === "cancelled" ||
+            result.status === "superseded"
+          )
+            set({ phase: "dirty" });
+          else set({ phase: "error", error: result.error });
+        });
+      },
+      dispose() {
+        if (!alive) return;
+        alive = false;
+        generation++;
+        handle?.cancel();
+        if (fields.get(key) === field) {
+          fields.delete(key);
+          store.clearTaskError(key);
+        }
+        if (!fields.size && detach) {
+          const disconnect = detach;
+          detach = undefined;
+          disconnect();
+        }
+        set({ phase: "disposed" });
+      },
+    };
+    fields.set(key, field);
+    if (!detach) detach = store.registerParticipant(participant);
+    else store.notifyChange();
+    return field;
+  }
+
+  return {
+    mountField,
+    getFieldSnapshot: (key: string) =>
+      fields.get(key)?.snapshot() ?? cleanField,
+    resetField: (key: string, value: string) => fields.get(key)?.reset(value),
+  };
 }
