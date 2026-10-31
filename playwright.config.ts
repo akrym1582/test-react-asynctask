@@ -3,7 +3,13 @@ export default defineConfig({
   testDir: "./browser-tests",
   testMatch: "**/*.spec.ts",
   fullyParallel: true,
-  use: { baseURL: "http://127.0.0.1:4173" },
+  reporter: [["list"], ["html", { open: "never" }]],
+  use: {
+    baseURL: "http://127.0.0.1:4173",
+    // CIで失敗した操作・DOMの状態を、ダウンロードして調べられます。
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
     { name: "firefox", use: { browserName: "firefox" } },
