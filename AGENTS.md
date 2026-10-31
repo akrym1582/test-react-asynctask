@@ -6,7 +6,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 
 ## ファイル構成と依存の方向
 
-- `src/AsyncTasks.tsx`が中心ファイルです。Context、タスク登録・待機、入力確定を待機へ統合する内部管理、`useAfterTasks`、`useLatestCommitted`を持ちます。React以外の実行時importを追加しないでください。この1ファイルだけで利用できることを維持します。
+- `src/AsyncTasks.tsx`が中心ファイルです。Context、タスク登録・待機、入力確定を待機へ統合する内部管理、`useAsyncTasks`、`useLatestCommitted`を持ちます。React以外の実行時importを追加しないでください。この1ファイルだけで利用できることを維持します。
 - `src/useAsyncField.ts`は任意の入力Hook群です。`useAsyncField`、`useTaskField`、`AsyncFieldOptions`をまとめます。中心ファイルだけに依存します。
 - `src/TrackedInput.tsx`は任意の入力UIです。`useAsyncField.ts`を利用し、確定処理を重複実装しません。
 - `src/useAsyncSubmit.ts`は任意のformイベント補助です。IME・Enter・明示クリックを扱い、タスク管理には依存しません。
@@ -15,10 +15,13 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 
 ## APIの方針
 
+- 公開Hookは`useAsyncTasks`に統一します。引数なしは登録・共有状態参照用、actionとoptionsを指定した場合は`runAfterTasks`も返します。登録用呼び出しの戻り値の同一性を保ち、任意の入力Hookを不要に再mountさせないでください。
+- 実行名は`runAfterTasks`、保存結果不明の状態名は`isResultUnknown`です。`useAfterTasks`・`run`・`blocked`の互換APIは提供しません。
+
 - タスクの登録は`registerAsyncTask(key, factory, options?)`に一本化します。factoryは`{ signal }`を受け取り、結果を返します。state反映は同期的な`options.onCommit`へ分けます。
 - 旧APIの互換性は維持しません。開始済みPromiseを直接渡す形式、`register`/`track`の別名、TrackedInputのasync `onBlur`形式、削除したexportを復活させないでください。
 - `TrackedInput`は`normalize`と`onCommit`が必須です。`useAsyncField`の無効化用null形式は不要です。動的入力は子コンポーネントのmount/unmountで扱います。
-- `run`はイベントハンドラーとして使うvoid関数です。`await run()`で保存終了を待てると説明しないでください。成功後の処理はaction内へ書きます。
+- `runAfterTasks`はイベントハンドラーとして使うvoid関数です。`await runAfterTasks()`で保存終了を待てると説明しないでください。成功後の処理はaction内へ書きます。
 - タイムアウトの`null`は無期限、`undefined`は既定値を継承します。0・負数・NaN・Infinityは無効です。無期限でも取消とunmountの後始末は必要です。
 
 ## 保持すべき動作
@@ -26,7 +29,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 - 単純なPromise待機だけでは古いclosureは更新されません。タスク完了後に再レンダーし、そのレンダーに対応するactionを呼びます。
 - 入力の再編集、取消、期限切れ、unmount、同じkeyでの再登録後は、古い結果をonCommitへ渡しません。
 - 待機中に追加されたタスクとdirty入力も保存前に確認します。
-- 保存要求の重複をProvider単位で防ぎます。保存結果が不明な場合はblockedを維持し、実際の結果照会で回復します。
+- 保存要求の重複をProvider単位で防ぎます。保存結果が不明な場合はisResultUnknownを維持し、実際の結果照会で回復します。
 - React 18.3/19、StrictMode、SSRに対応します。破棄されたレンダーの値をlatest getterから公開しません。
 - SyntheticEventの必要な値はイベント中に取得し、preventDefaultも同期的に実行します。
 - FirefoxのPlaywright `fill()`はcompositionイベントを発生させるため、通常のキー入力を検証するケースは`pressSequentially()`を使います。IMEケースは分けます。合成イベントを実OSの日本語IME検証済みとは扱いません。

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAfterTasks, useLatestCommitted } from "./AsyncTasks";
+import { useAsyncTasks, useLatestCommitted } from "./AsyncTasks";
 
 /** 親にAsyncTasksProviderを置いて利用する、getter方式だけの小さな例。 */
 export function LatestStateExample({
@@ -12,7 +12,7 @@ export function LatestStateExample({
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const getValue = useLatestCommitted(value);
-  const { run, busy, blocked } = useAfterTasks(
+  const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(
     async () => {
       await check();
       // check待機中にcommitされた編集を含めて読む。
@@ -27,7 +27,7 @@ export function LatestStateExample({
         value={value}
         onChange={(event) => setValue(event.currentTarget.value)}
       />
-      <button onClick={run} disabled={busy || blocked}>
+      <button onClick={runAfterTasks} disabled={busy || isResultUnknown}>
         確認して保存
       </button>
       <p>{error}</p>

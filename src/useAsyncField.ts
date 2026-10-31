@@ -60,7 +60,7 @@ export type AsyncFieldOptions = {
 };
 
 /**
- * 編集時点で古い処理を無効化し、blurまたはrunで最新の入力を確定します。
+ * 編集時点で古い処理を無効化し、blurまたはrunAfterTasksで最新の入力を確定します。
  * changeはReactのstateを変更しないため、画面のsetterも呼んでください。
  * 初期valueは確定済みです。reset(value)やresetKeyの変更で再確定を要求できます。
  * HookはProviderの子で常に呼びます。入力の表示を切り替える場合は子部品をmount/unmountします。

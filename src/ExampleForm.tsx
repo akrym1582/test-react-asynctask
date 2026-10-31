@@ -3,7 +3,7 @@ import { useAsyncField, useTaskField } from "./useAsyncField";
 import { useRef, useState } from "react";
 import {
   AsyncTasksProvider,
-  useAfterTasks,
+  useAsyncTasks,
   type ActionContext,
 } from "./AsyncTasks";
 
@@ -56,23 +56,29 @@ function Fields({
   const [values, setValues] = useState<Values>({ name: "", address: "" });
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const { run, busy, blocked, requestId, reconcile } = useAfterTasks(
-    // valuesはactionを開始するレンダーでのsnapshotです。
-    // signalとrequestIdを通信層まで渡すと、中断・結果照会に利用できます。
-    async (context) => {
-      await save(values, context);
-    },
-    {
-      beforeWait: () => {
-        setError(null);
-        const active = document.activeElement;
-        if (active instanceof HTMLElement && formRef.current?.contains(active))
-          active.blur();
+  const { runAfterTasks, busy, isResultUnknown, requestId, reconcile } =
+    useAsyncTasks(
+      // valuesはactionを開始するレンダーでのsnapshotです。
+      // signalとrequestIdを通信層まで渡すと、中断・結果照会に利用できます。
+      async (context) => {
+        await save(values, context);
       },
-      onError: (error) =>
-        setError(error instanceof Error ? error.message : "処理に失敗しました"),
-    },
-  );
+      {
+        beforeWait: () => {
+          setError(null);
+          const active = document.activeElement;
+          if (
+            active instanceof HTMLElement &&
+            formRef.current?.contains(active)
+          )
+            active.blur();
+        },
+        onError: (error) =>
+          setError(
+            error instanceof Error ? error.message : "処理に失敗しました",
+          ),
+      },
+    );
   // normalizeとstate反映をHookへ渡します。DOMには通常のinputを使います。
   const nameField = useAsyncField({
     taskKey: "name",
@@ -86,14 +92,14 @@ function Fields({
     normalize: normalizeAddress,
     onCommit: (address) => setValues((previous) => ({ ...previous, address })),
   });
-  const submitEvents = useAsyncSubmit(run);
+  const submitEvents = useAsyncSubmit(runAfterTasks);
   return (
     <form ref={formRef} {...submitEvents}>
       <label>
         氏名
         <input
           value={values.name}
-          readOnly={busy || blocked}
+          readOnly={busy || isResultUnknown}
           onChange={(event) => {
             const name = event.currentTarget.value;
             nameField.change(name);
@@ -107,7 +113,7 @@ function Fields({
         住所
         <input
           value={values.address}
-          readOnly={busy || blocked}
+          readOnly={busy || isResultUnknown}
           onChange={(event) => {
             const address = event.currentTarget.value;
             addressField.change(address);
@@ -117,15 +123,15 @@ function Fields({
         />
       </label>
       <FieldError taskKey="address" />
-      <button type="submit" disabled={busy || blocked}>
+      <button type="submit" disabled={busy || isResultUnknown}>
         {busy ? "処理中…" : "保存"}
       </button>
-      {blocked && (
+      {isResultUnknown && (
         <p role="status">
           保存結果が不明です。再送せず、結果を確認してください。
         </p>
       )}
-      {blocked && lookupRequest && (
+      {isResultUnknown && lookupRequest && (
         <button
           type="button"
           onClick={() => {

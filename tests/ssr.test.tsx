@@ -4,7 +4,7 @@ import { renderToString } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import {
   AsyncTasksProvider,
-  useAfterTasks,
+  useAsyncTasks,
   useLatestCommitted,
 } from "../src/AsyncTasks";
 it("renders on the server without accessing window/document or starting actions", () => {
@@ -12,7 +12,7 @@ it("renders on the server without accessing window/document or starting actions"
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   function Form() {
     const get = useLatestCommitted("server");
-    const { busy } = useAfterTasks(action, { onError: vi.fn() });
+    const { busy } = useAsyncTasks(action, { onError: vi.fn() });
     return (
       <>
         <TrackedInput

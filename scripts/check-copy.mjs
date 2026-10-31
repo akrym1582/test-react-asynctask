@@ -9,7 +9,9 @@ const variants = [
     name: "core",
     files: ["AsyncTasks.tsx"],
     usage: `
-import { useAsyncTasks, useAfterTasks } from "./AsyncTasks";
+import { useAsyncTasks } from "./AsyncTasks";
+// @ts-expect-error 分離されていた旧Hookは公開しない
+import { useAfterTasks } from "./AsyncTasks";
 // @ts-expect-error 入力Hookは中心ファイルから再exportしない
 import { useAsyncField } from "./AsyncTasks";
 // @ts-expect-error 入力の購読Hookも任意ファイルに置く
@@ -27,8 +29,15 @@ function Example() {
   tasks.track("name", () => "ok");
   // @ts-expect-error registerという汎用名も提供しない
   tasks.register(Promise.resolve());
-  const { run, busy } = useAfterTasks(() => {}, { onError: console.error });
-  return <button onClick={run} disabled={busy}>save</button>;
+  const { runAfterTasks, busy } = useAsyncTasks(() => {}, { onError: console.error });
+  // @ts-expect-error 登録だけの呼び出しには実行操作を公開しない
+  tasks.runAfterTasks();
+  const executor = useAsyncTasks(() => {}, { onError: console.error });
+  // @ts-expect-error 旧名は提供しない
+  executor.run();
+  // @ts-expect-error 旧状態名は提供しない
+  executor.blocked;
+  return <button onClick={runAfterTasks} disabled={busy}>save</button>;
 }`,
   },
   {
@@ -60,11 +69,11 @@ const mixedInput = <TrackedInput taskKey="name" value="" normalize={v => v} onCo
     name: "submit",
     files: ["AsyncTasks.tsx", "useAsyncSubmit.ts"],
     usage: `
-import { useAfterTasks } from "./AsyncTasks";
+import { useAsyncTasks } from "./AsyncTasks";
 import { useAsyncSubmit } from "./useAsyncSubmit";
 function Example() {
-  const { run } = useAfterTasks(() => {}, { onError: console.error });
-  return <form {...useAsyncSubmit(run)}><button>save</button></form>;
+  const { runAfterTasks } = useAsyncTasks(() => {}, { onError: console.error });
+  return <form {...useAsyncSubmit(runAfterTasks)}><button>save</button></form>;
 }`,
   },
 ];

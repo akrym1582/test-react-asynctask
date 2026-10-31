@@ -1,14 +1,14 @@
 /**
  * Reactの非同期入力確定を、保存などのイベント処理より先に完了させる共通部品です。
- * Context・タスク登録・useAfterTasksはこの1ファイルだけで利用できます。
+ * Context・タスク登録・useAsyncTasksはこの1ファイルだけで利用できます。
  * 任意の入力Hook・TrackedInput・useAsyncSubmitは別ファイルです。このファイルからは参照しません。
  * React以外の実行時依存はありません。
  *
  * 基本の流れ:
  * 1. useAsyncField（またはTrackedInput）が編集をdirty（未確定）として記録する。
- * 2. blurまたはrunでnormalizeを開始する。
+ * 2. blurまたはrunAfterTasksでnormalizeを開始する。
  * 3. 最新の編集の結果だけをonCommitでReactのstateへ反映する。
- * 4. useAfterTasksが再レンダーを経由し、新しいstateを参照するactionを呼ぶ。
+ * 4. useAsyncTasksが再レンダーを経由し、新しいstateを参照するactionを呼ぶ。
  *
  * 注意: 非同期処理の中で直接呼ばれたsetStateは取り消せません。
  * 競合防止が必要な入力は normalize/onCommit 形式を使ってください。
@@ -110,12 +110,12 @@ export type FieldSnapshot = Readonly<{
 const cleanField: FieldSnapshot = Object.freeze({ phase: "clean" });
 const idleAction: Readonly<{
   busy: boolean;
-  blocked: boolean;
+  isResultUnknown: boolean;
   phase: ActionPhase;
   requestId: string | null;
 }> = Object.freeze({
   busy: false,
-  blocked: false,
+  isResultUnknown: false,
   phase: "idle" as ActionPhase,
   requestId: null as string | null,
 });
@@ -213,7 +213,7 @@ export function createTaskStore(config: TasksConfig = {}) {
     actionSnapshot = owner
       ? {
           busy: !owner.uncertain,
-          blocked: owner.uncertain,
+          isResultUnknown: owner.uncertain,
           phase: owner.phase,
           requestId: owner.id,
         }
@@ -413,7 +413,7 @@ export function createTaskStore(config: TasksConfig = {}) {
   /**
    * dirty入力を確定し、blockingタスクがなくなるまで購読して待ちます。
    * Promise.allを一度だけ呼ぶ方法と違い、待機途中の追加・削除にも追従します。
-   * この関数だけではReactのstate反映待ちは行いません。画面ではuseAfterTasksを使用します。
+   * この関数だけではReactのstate反映待ちは行いません。画面ではuseAsyncTasksを使用します。
    */
   async function wait(
     options: { signal?: AbortSignal; timeoutMs?: Timeout } = {},
@@ -503,6 +503,14 @@ export function createTaskStore(config: TasksConfig = {}) {
       };
     },
     getSnapshot: () => actionSnapshot,
+    /** 待機・保存処理中。登録した入力タスクだけが動いている間はfalseです。 */
+    get busy() {
+      return actionSnapshot.busy;
+    },
+    /** 保存結果が不明なため再送できない状態。入力待機のtimeoutだけではtrueになりません。 */
+    get isResultUnknown() {
+      return actionSnapshot.isResultUnknown;
+    },
     beginAction(): ActionOwner | null {
       if (owner || disposed) return null;
       owner = {
@@ -597,25 +605,53 @@ export function AsyncTasksProvider({
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }
 /**
- * Provider内のタスク操作を取得します。Promiseの全自動検出は行いません。
+ * タスク登録・待機後の実行・共有状態を取得する公開Hookです。
+ * 引数なしでは登録とbusy/isResultUnknownの参照に利用できます。
+ * actionとoptionsを渡すとrunAfterTasksも取得できます。保存処理はHookの引数に定義し、
+ * onClick={runAfterTasks}で実行します。actionは待機後の新しいレンダーのstateを参照します。
+ * busyは待機/保存中、isResultUnknownは保存結果が不明で再送を止めている状態です。
+ * 保存のタイムアウトや結果不明が対象で、入力待機のタイムアウトだけではtrueになりません。
+ * runAfterTasksはvoid関数です。保存後の処理はaction内へ書きます。
+ * Promiseの全自動検出は行いません。
+ * @example
+ * const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } = useAsyncTasks(
+ *   context => save(values, context), { onError: console.error },
+ * );
+ * return <button onClick={runAfterTasks} disabled={busy || isResultUnknown}>保存</button>;
  * @example
  * const tasks = useAsyncTasks();
  * tasks.registerAsyncTask("suggestions", ({ signal }) => fetch("/api/suggestions", { signal }), {
  *   blocking: false, // 保存対象のデータとは無関係な背景処理
  * });
  */
-export function useAsyncTasks() {
+export function useAsyncTasks(): TaskStore;
+export function useAsyncTasks(
+  action: (context: ActionContext) => void | Promise<void>,
+  options: AsyncTasksOptions,
+): TaskStore & ReturnType<typeof useTaskAction>;
+export function useAsyncTasks(
+  action?: (context: ActionContext) => void | Promise<void>,
+  options?: AsyncTasksOptions,
+) {
   const store = useContext(Context);
   if (!store) throw new Error("AsyncTasksProviderが必要です");
-  return store;
+  // 引数の有無でHookを条件呼び出ししません。登録だけの利用でも同じ順序で呼びます。
+  const execution = useTaskAction(
+    store,
+    action,
+    options ?? registrationOptions,
+  );
+  // 入力Hookの購読・mountを安定させるため、登録だけの利用では同じstoreを返します。
+  return action ? { ...store, ...execution } : store;
 }
+const registrationOptions: AsyncTasksOptions = { onError: console.error };
 /**
  * 最新のcommit済み値を読む安定したgetterを返します。
  * render中にrefを書き換えないため、途中で破棄されたレンダーの値を公開しません。
  * setState直後の値を即座に取得する関数ではありません。
  * @example
  * const getValues = useLatestCommitted(values);
- * const { run } = useAfterTasks(async () => {
+ * const { runAfterTasks } = useAsyncTasks(async () => {
  *   await checkPermission();
  *   await save(getValues()); // checkPermission待機中の編集も含めて読む場合
  * }, { onError: console.error });
@@ -628,7 +664,7 @@ export function useLatestCommitted<T>(value: T): () => T {
   return useCallback(() => ref.current, []);
 }
 /** onErrorは保存要求の失敗通知。beforeWaitはblurなどの同期準備に利用します。 */
-export type AfterTasksOptions = {
+export type AsyncTasksOptions = {
   onError: (error: unknown) => void;
   beforeWait?: () => void;
   waitTimeoutMs?: Timeout;
@@ -636,21 +672,21 @@ export type AfterTasksOptions = {
 };
 /**
  * タスク完了と再レンダーを経由してactionを実行します。
- * runはイベント用のvoid関数で、await run()では保存完了を待てません。
- * busyは待機/保存中、blockedは保存結果が不明で再送を止めている状態です。
+ * runAfterTasksはイベント用のvoid関数で、await runAfterTasks()では保存完了を待てません。
+ * busyは待機/保存中、isResultUnknownは保存結果が不明で再送を止めている状態です。
  * action内のawait後に同じclosureのstateが自動更新されるわけではありません。
  * @example
- * const { run, busy, blocked } = useAfterTasks(async ({ signal, requestId }) => {
+ * const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(async ({ signal, requestId }) => {
  *   await save(values, { signal, requestId });
  *   navigate("/complete"); // 保存成功後の処理もこの中へ
  * }, { onError: error => setError(String(error)) });
- * return <button onClick={run} disabled={busy || blocked}>保存</button>;
+ * return <button onClick={runAfterTasks} disabled={busy || isResultUnknown}>保存</button>;
  */
-export function useAfterTasks(
-  action: (context: ActionContext) => void | Promise<void>,
-  options: AfterTasksOptions,
+function useTaskAction(
+  store: TaskStore,
+  action: ((context: ActionContext) => void | Promise<void>) | undefined,
+  options: AsyncTasksOptions,
 ) {
-  const store = useAsyncTasks();
   const snapshot = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -726,7 +762,8 @@ export function useAfterTasks(
         },
       );
   }
-  function run() {
+  function runAfterTasks() {
+    if (!action) return;
     const owner = store.beginAction();
     if (!owner) return;
     const current: Request = {
@@ -800,6 +837,7 @@ export function useAfterTasks(
     void (async () => {
       try {
         store.assertSuccess();
+        if (!action) throw new Error("保存処理が指定されていません");
         await action({
           signal: current.owner.controller.signal,
           requestId: current.owner.id,
@@ -820,5 +858,5 @@ export function useAfterTasks(
       }
     })();
   }, [revision, action, actionTimeout, store]);
-  return { run, ...snapshot, reconcile: store.reconcile };
+  return { runAfterTasks, ...snapshot, reconcile: store.reconcile };
 }

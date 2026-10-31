@@ -13,7 +13,6 @@ import {
   createTaskStore,
   AsyncTasksProvider,
   useAsyncTasks,
-  useAfterTasks,
 } from "../src/AsyncTasks";
 import { ExampleForm } from "../src/ExampleForm";
 
@@ -77,8 +76,10 @@ function Harness({
   onError: (error: unknown) => void;
 }) {
   const [value, setValue] = useState("old");
-  const { registerAsyncTask } = useAsyncTasks();
-  const { run, busy } = useAfterTasks(() => action(value), { onError });
+  const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(
+    () => action(value),
+    { onError },
+  );
   return (
     <>
       <button
@@ -88,7 +89,7 @@ function Harness({
       >
         blur
       </button>
-      <button onClick={run} disabled={busy}>
+      <button onClick={runAfterTasks} disabled={busy}>
         save
       </button>
       <output>{value}</output>
@@ -106,7 +107,7 @@ function setup(task: Promise<string>, action = vi.fn(), onError = vi.fn()) {
   return { ...view, action, onError };
 }
 
-describe("useAfterTasks", () => {
+describe("useAsyncTasks", () => {
   it("invokes the new render callback once, and stays busy until action completes", async () => {
     const input = deferred<string>();
     const saving = deferred<void>();
@@ -215,7 +216,7 @@ describe("additional edge cases", () => {
       const store = useAsyncTasks();
       const [value, setValue] = useState("old");
       const added = useRef(false);
-      const { run, busy } = useAfterTasks(
+      const { runAfterTasks, busy } = useAsyncTasks(
         () => {
           action(value);
         },
@@ -240,7 +241,7 @@ describe("additional edge cases", () => {
             store.registerAsyncTask("first", () => first.promise, {
               onCommit: setValue,
             });
-            run();
+            runAfterTasks();
           }}
         >
           execute
@@ -267,18 +268,18 @@ describe("additional edge cases", () => {
     );
   });
 
-  it("blocks a second hook within a provider even when run is called twice synchronously", async () => {
+  it("blocks a second hook within a provider even when runAfterTasks is called twice synchronously", async () => {
     const saving = deferred<void>();
     const first = vi.fn(() => saving.promise);
     const second = vi.fn();
     function Form() {
-      const a = useAfterTasks(first, { onError: vi.fn() });
-      const b = useAfterTasks(second, { onError: vi.fn() });
+      const a = useAsyncTasks(first, { onError: vi.fn() });
+      const b = useAsyncTasks(second, { onError: vi.fn() });
       return (
         <button
           onClick={() => {
-            a.run();
-            b.run();
+            a.runAfterTasks();
+            b.runAfterTasks();
           }}
         >
           both
@@ -301,14 +302,14 @@ describe("additional edge cases", () => {
     const onError = vi.fn();
     const error = new Error("before");
     function Form() {
-      const { run, busy } = useAfterTasks(action, {
+      const { runAfterTasks, busy } = useAsyncTasks(action, {
         onError,
         beforeWait: () => {
           throw error;
         },
       });
       return (
-        <button onClick={run} disabled={busy}>
+        <button onClick={runAfterTasks} disabled={busy}>
           execute
         </button>
       );

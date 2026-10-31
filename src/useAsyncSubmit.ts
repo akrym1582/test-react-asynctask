@@ -6,13 +6,13 @@ import { useRef, type FormEvent, type KeyboardEvent } from "react";
  * preventDefaultはイベント配送中に実行し、イベントオブジェクトを後で使い回しません。
  * 実OSのIMEはブラウザー自動化の合成イベントと異なるため、利用環境でも確認してください。
  * @example
- * import { useAfterTasks } from "./AsyncTasks";
+ * import { useAsyncTasks } from "./AsyncTasks";
  * import { useAsyncSubmit } from "./useAsyncSubmit";
- * const { run } = useAfterTasks(save, { onError: console.error });
- * const submitEvents = useAsyncSubmit(run);
+ * const { runAfterTasks } = useAsyncTasks(save, { onError: console.error });
+ * const submitEvents = useAsyncSubmit(runAfterTasks);
  * return <form {...submitEvents}><input /><button type="submit">保存</button></form>;
  */
-export function useAsyncSubmit(run: () => void) {
+export function useAsyncSubmit(runAfterTasks: () => void) {
   const ime = useRef({
     composing: false,
     ended: false,
@@ -65,7 +65,7 @@ export function useAsyncSubmit(run: () => void) {
       const allow =
         state.explicit || (!state.composing && !state.suppressEnter);
       state.explicit = false;
-      if (allow) run();
+      if (allow) runAfterTasks();
     },
   };
 }

@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AsyncTasksProvider,
   createTaskStore,
-  useAfterTasks,
+  useAsyncTasks,
   useLatestCommitted,
   UncertainActionError,
 } from "../src/AsyncTasks";
@@ -232,7 +232,7 @@ describe("managed UI", () => {
   }) {
     const [value, setValue] = useState("");
     const field = useTaskField("x");
-    const { run, busy } = useAfterTasks(() => onSave(value), {
+    const { runAfterTasks, busy } = useAsyncTasks(() => onSave(value), {
       onError: () => {},
     });
     return (
@@ -245,14 +245,14 @@ describe("managed UI", () => {
           onCommit={setValue}
           onChange={(e) => setValue(e.currentTarget.value)}
         />
-        <button onClick={run} disabled={busy}>
+        <button onClick={runAfterTasks} disabled={busy}>
           save
         </button>
         <output>{field.phase}</output>
       </>
     );
   }
-  it("flushes focused dirty input from run without requiring blur", async () => {
+  it("flushes focused dirty input from runAfterTasks without requiring blur", async () => {
     const d = deferred<string>();
     const save = vi.fn();
     render(
@@ -271,7 +271,7 @@ describe("managed UI", () => {
       expect(save).toHaveBeenCalledExactlyOnceWith("normalized"),
     );
   });
-  it("shows field failure immediately, before run", async () => {
+  it("shows field failure immediately, before runAfterTasks", async () => {
     render(
       <AsyncTasksProvider>
         <Form
@@ -325,16 +325,19 @@ describe("actions and recovery", () => {
     waitMs?: number;
     actionMs?: number;
   }) {
-    const { run, busy, blocked, requestId, reconcile } = useAfterTasks(action, {
-      onError: error,
-      waitTimeoutMs: waitMs,
-      actionTimeoutMs: actionMs,
-    });
+    const { runAfterTasks, busy, isResultUnknown, requestId, reconcile } =
+      useAsyncTasks(action, {
+        onError: error,
+        waitTimeoutMs: waitMs,
+        actionTimeoutMs: actionMs,
+      });
     const [recovered, setRecovered] = useState(false);
     return (
       <>
-        <button onClick={run}>run</button>
-        <output>{busy ? "busy" : blocked ? "blocked" : "idle"}</output>
+        <button onClick={runAfterTasks}>runAfterTasks</button>
+        <output>
+          {busy ? "busy" : isResultUnknown ? "isResultUnknown" : "idle"}
+        </output>
         <button
           onClick={() => {
             void reconcile(requestId!, async () => "saved").then(setRecovered);
@@ -356,11 +359,11 @@ describe("actions and recovery", () => {
         <Action action={action} error={error} />
       </AsyncTasksProvider>,
     );
-    fireEvent.click(screen.getByText("run"));
+    fireEvent.click(screen.getByText("runAfterTasks"));
     await flush();
     await act(async () => vi.advanceTimersByTimeAsync(10));
-    expect(screen.getByRole("status").textContent).toBe("blocked");
-    fireEvent.click(screen.getByText("run"));
+    expect(screen.getByRole("status").textContent).toBe("isResultUnknown");
+    fireEvent.click(screen.getByText("runAfterTasks"));
     expect(action).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByText("recover"));
     await flush();
@@ -391,9 +394,9 @@ describe("actions and recovery", () => {
         />
       </AsyncTasksProvider>,
     );
-    fireEvent.click(screen.getByText("run"));
+    fireEvent.click(screen.getByText("runAfterTasks"));
     await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toBe("blocked"),
+      expect(screen.getByRole("status").textContent).toBe("isResultUnknown"),
     );
     expect(error).toHaveBeenCalledTimes(1);
   });
@@ -436,10 +439,10 @@ describe("committed state and IME", () => {
     expect(getter()).toBe("new");
   });
   it("blocks conversion Enter, permits next Enter and explicit click", () => {
-    const run = vi.fn();
+    const runAfterTasks = vi.fn();
     function Form() {
       return (
-        <form {...useAsyncSubmit(run)}>
+        <form {...useAsyncSubmit(runAfterTasks)}>
           <input />
           <button>save</button>
         </form>
@@ -451,23 +454,23 @@ describe("committed state and IME", () => {
     fireEvent.compositionStart(input);
     fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
     fireEvent.submit(form);
-    expect(run).not.toHaveBeenCalled();
+    expect(runAfterTasks).not.toHaveBeenCalled();
     fireEvent.compositionEnd(input);
     fireEvent.submit(form);
-    expect(run).not.toHaveBeenCalled();
+    expect(runAfterTasks).not.toHaveBeenCalled();
     fireEvent.keyUp(input, { key: "Enter" });
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.submit(form);
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(runAfterTasks).toHaveBeenCalledTimes(1);
     fireEvent.keyUp(input, { key: "Enter" });
     fireEvent.compositionStart(input);
     fireEvent.compositionEnd(input);
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.submit(form);
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(runAfterTasks).toHaveBeenCalledTimes(1);
     fireEvent.pointerDown(screen.getByText("save"));
     fireEvent.submit(form);
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(runAfterTasks).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -479,7 +482,7 @@ describe("request timeout and snapshot contract", () => {
     const error = vi.fn();
     function Form() {
       const [value, setValue] = useState("");
-      const { run, busy } = useAfterTasks(
+      const { runAfterTasks, busy } = useAsyncTasks(
         () => {
           save(value);
         },
@@ -494,7 +497,7 @@ describe("request timeout and snapshot contract", () => {
             normalize={() => task.promise}
             onCommit={setValue}
           />
-          <button onClick={run}>run</button>
+          <button onClick={runAfterTasks}>runAfterTasks</button>
           <output>{String(busy)}</output>
         </>
       );
@@ -505,7 +508,7 @@ describe("request timeout and snapshot contract", () => {
       </AsyncTasksProvider>,
     );
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });
-    fireEvent.click(screen.getByText("run"));
+    fireEvent.click(screen.getByText("runAfterTasks"));
     await act(async () => vi.advanceTimersByTimeAsync(10));
     expect(error).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("status").textContent).toBe("false");
@@ -519,7 +522,7 @@ describe("request timeout and snapshot contract", () => {
     function Form() {
       const [value, setValue] = useState("old");
       const get = useLatestCommitted(value);
-      const { run } = useAfterTasks(
+      const { runAfterTasks } = useAsyncTasks(
         async () => {
           await gate.promise;
           result(value, get());
@@ -528,7 +531,7 @@ describe("request timeout and snapshot contract", () => {
       );
       return (
         <>
-          <button onClick={run}>run</button>
+          <button onClick={runAfterTasks}>runAfterTasks</button>
           <button onClick={() => setValue("new")}>edit</button>
         </>
       );
@@ -538,7 +541,7 @@ describe("request timeout and snapshot contract", () => {
         <Form />
       </AsyncTasksProvider>,
     );
-    fireEvent.click(screen.getByText("run"));
+    fireEvent.click(screen.getByText("runAfterTasks"));
     await flush();
     fireEvent.click(screen.getByText("edit"));
     await act(async () => gate.resolve());
@@ -550,14 +553,14 @@ describe("request timeout and snapshot contract", () => {
       throw Error("action");
     });
     function Form() {
-      const { run, busy } = useAfterTasks(action, {
+      const { runAfterTasks, busy } = useAsyncTasks(action, {
         onError: () => {
           throw Error("handler");
         },
       });
       return (
-        <button disabled={busy} onClick={run}>
-          run
+        <button disabled={busy} onClick={runAfterTasks}>
+          runAfterTasks
         </button>
       );
     }
@@ -566,9 +569,9 @@ describe("request timeout and snapshot contract", () => {
         <Form />
       </AsyncTasksProvider>,
     );
-    fireEvent.click(screen.getByText("run"));
+    fireEvent.click(screen.getByText("runAfterTasks"));
     await flush();
-    fireEvent.click(screen.getByText("run"));
+    fireEvent.click(screen.getByText("runAfterTasks"));
     await flush();
     expect(action).toHaveBeenCalledTimes(2);
     log.mockRestore();

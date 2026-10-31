@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { AsyncTasksProvider, useAfterTasks, useAsyncTasks } from "./AsyncTasks";
+import { AsyncTasksProvider, useAsyncTasks } from "./AsyncTasks";
 
 /**
  * 通常のinputから非同期処理を登録する、中心ファイルだけの使用例です。
@@ -40,26 +40,26 @@ function Fields({
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const { registerAsyncTask } = useAsyncTasks();
-  const { run, busy, blocked } = useAfterTasks(
-    async () => {
-      await save(value);
-    },
-    {
-      // フォーカスが残っている場合も、blurを発生させてから登録済みタスクを待ちます。
-      beforeWait: () => {
-        setError("");
-        inputRef.current?.blur();
+  const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } =
+    useAsyncTasks(
+      async () => {
+        await save(value);
       },
-      onError: (error) => setError(String(error)),
-    },
-  );
+      {
+        // フォーカスが残っている場合も、blurを発生させてから登録済みタスクを待ちます。
+        beforeWait: () => {
+          setError("");
+          inputRef.current?.blur();
+        },
+        onError: (error) => setError(String(error)),
+      },
+    );
   return (
     <>
       <input
         ref={inputRef}
         value={value}
-        readOnly={busy || blocked}
+        readOnly={busy || isResultUnknown}
         onChange={(event) => setValue(event.currentTarget.value)}
         onBlur={(event) => {
           // SyntheticEventの値はawaitの前に読み取ります。
@@ -74,7 +74,11 @@ function Fields({
           );
         }}
       />
-      <button type="button" onClick={run} disabled={busy || blocked}>
+      <button
+        type="button"
+        onClick={runAfterTasks}
+        disabled={busy || isResultUnknown}
+      >
         保存
       </button>
       {error && <p role="alert">{error}</p>}

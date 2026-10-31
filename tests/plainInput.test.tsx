@@ -13,7 +13,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import {
   AsyncTasksProvider,
   createTaskStore,
-  useAfterTasks,
+  useAsyncTasks,
 } from "../src/AsyncTasks";
 
 afterEach(() => {
@@ -42,11 +42,14 @@ it("null disables input, overall wait and action deadlines, including hook overr
       normalize: () => normalize.promise,
       onCommit: setValue,
     });
-    const { run, busy, blocked } = useAfterTasks(() => save(value), {
-      onError: error,
-      waitTimeoutMs: null,
-      actionTimeoutMs: null,
-    });
+    const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(
+      () => save(value),
+      {
+        onError: error,
+        waitTimeoutMs: null,
+        actionTimeoutMs: null,
+      },
+    );
     return (
       <>
         <input
@@ -57,8 +60,10 @@ it("null disables input, overall wait and action deadlines, including hook overr
           }}
           onBlur={field.commit}
         />
-        <button onClick={run}>save</button>
-        <output>{busy ? "busy" : blocked ? "blocked" : "idle"}</output>
+        <button onClick={runAfterTasks}>save</button>
+        <output>
+          {busy ? "busy" : isResultUnknown ? "isResultUnknown" : "idle"}
+        </output>
       </>
     );
   }
@@ -127,7 +132,9 @@ it("a native input ignores a previous edit even before the next blur", async () 
       normalize: (v) => (v === "A" ? old.promise : current.promise),
       onCommit: setValue,
     });
-    const { run } = useAfterTasks(() => saved(value), { onError: vi.fn() });
+    const { runAfterTasks } = useAsyncTasks(() => saved(value), {
+      onError: vi.fn(),
+    });
     return (
       <>
         <input
@@ -138,7 +145,7 @@ it("a native input ignores a previous edit even before the next blur", async () 
           }}
           onBlur={field.commit}
         />
-        <button onClick={run}>save</button>
+        <button onClick={runAfterTasks}>save</button>
       </>
     );
   }
