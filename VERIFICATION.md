@@ -1,11 +1,30 @@
 # 検証結果
 
-- TypeScript: `npm run typecheck` 成功
-- React 19.3.1 / StrictMode / jsdom
-- Vitest: `npm test`、13件成功
+## 実行済み
 
-対象: 待機中の追加タスク、失敗の保持と項目ごとの再試行、Scopeロック、最新stateでの1回実行、保存中busy、入力失敗、待機中アンマウント、保存失敗、フォーカス解除を伴うsubmit。
+| 対象                             | 結果                                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| React 19.3.1 / TypeScript 5.9.3  | `npm run typecheck` 成功                                                                             |
+| React 19.3.1 / Vitest 3.2.7      | `npm test` 35件成功                                                                                  |
+| React 18.3.1 / @types/react 18系 | 別ディレクトリでインストールし、型チェック・同じ35件のテスト成功                                     |
+| 1ファイル配布                    | `npm run check:copy` 成功。AsyncTasks.tsxだけをコピーして型チェック                                  |
+| SSR                              | node環境でrenderToStringし、window/document参照エラー・layout effect警告・action開始がないことを確認 |
+| ブラウザーのテスト定義           | Playwright 1.58.2で12件（4ケース×3ブラウザー）を列挙できることを確認                                 |
 
-追加検証: 同一keyの古い失敗の無効化、commit中に追加されるタスク、複数Hook間の同時run抑止、beforeWaitの同期例外、Provider間の独立性。
+既存13件に加え、期限、cancel後の遅延完了、背景処理、編集時点の世代切替、dirty確定、項目別エラー、動的項目の破棄、即時エラー表示、保存結果不明と照会、冪等性fake、latest getterと未commit値、IME合成イベント、総待機期限、snapshot、SSRを検証しました。
 
-React 18での実行検証、および実ブラウザーでのポインター・キーボード・IME操作の検証は未実施です。組み込み先のアプリでも確認してください。
+デモ画面のVite 6.4.5本番ビルド（`npx vite build`）も成功しました。
+
+## 実ブラウザー実行の制約
+
+この実行環境ではPlaywrightのブラウザーZIPの取得結果を展開できず、`End of central directory record signature not found`でインストールが失敗しました。Chromiumテストの実行もブラウザー実行ファイル不足で起動前に停止しました。システムのChromiumもありません。
+
+そのためChromium/Firefox/WebKitの実操作テストはこの環境では**未完了**です。テスト成功とは扱っていません。`.github/workflows/test.yml`にブラウザー導入・12件実行のジョブを用意しています。CIの実行結果はGitHub Actionsで確認してください。
+
+## 別途必要な確認
+
+- Windowsの日本語IME、macOS日本語入力とSafari等での実IME操作。合成compositionイベントのテストと同一視しないでください。
+- 実バックエンドの冪等性キー・結果照会・楽観ロック。adapterは契約例であり、本物のサーバーを作成・検証したものではありません。
+- Portal/Shadow DOM、利用先の画面遷移・reset・独自入力部品との結合。
+
+単体テストの成功は、上記の未実施範囲まで保証するものではありません。
