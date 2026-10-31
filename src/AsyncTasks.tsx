@@ -3,7 +3,7 @@
  * この1ファイルをコピーすれば利用できます。React以外の実行時依存はありません。
  *
  * 基本の流れ:
- * 1. TrackedInputが編集をdirty（未確定）として記録する。
+ * 1. useAsyncField（またはTrackedInput）が編集をdirty（未確定）として記録する。
  * 2. blurまたはrunでnormalizeを開始する。
  * 3. 最新の編集の結果だけをonCommitでReactのstateへ反映する。
  * 4. useAfterTasksが再レンダーを経由し、新しいstateを参照するactionを呼ぶ。
@@ -594,7 +594,8 @@ const Context = createContext<TaskStore | null>(null);
  * フォームごとに置く管理範囲です。この範囲内の入力を待ち、保存操作を1つに制限します。
  * configはScope作成時に固定します。変更にはProviderをkeyで再作成してください。
  * @example
- * <AsyncTasksProvider taskTimeoutMs={15000} onTaskError={console.error}>
+ * // 3種類すべてnullにすると、入力・確定待機・保存を無期限で待てます。
+ * <AsyncTasksProvider taskTimeoutMs={null} waitTimeoutMs={null} actionTimeoutMs={null}>
  *   <EditForm />
  * </AsyncTasksProvider>
  */
@@ -847,6 +848,88 @@ export function useAfterTasks(
   return { run, ...snapshot, reconcile: store.reconcile };
 }
 
+/** 通常のinputや既存のUIライブラリーを使うための入力設定です。 */
+export type AsyncFieldOptions = FieldConfig & {
+  taskKey: string;
+  value: string;
+  /** 同じvalueのままでも、この値を変更すると再確定します。 */
+  resetKey?: unknown;
+};
+
+/**
+ * TrackedInputを使わずに、入力の世代・確定・破棄を管理します。
+ * changeはstateを変更しないため、画面のsetterも呼んでください。
+ * commitはblurで呼びます。runからもdirty項目を自動確定するため、blur漏れに対応します。
+ * @example
+ * const nameField = useAsyncField({
+ *   taskKey: "name", value: name,
+ *   normalize: (input, { signal }) => normalizeName(input, { signal }),
+ *   onCommit: setName,
+ *   timeoutMs: null, // この入力の処理を無期限で待つ
+ * });
+ * return <input value={name} onChange={event => {
+ *   const value = event.currentTarget.value;
+ *   nameField.change(value); // 古い結果を、この時点で無効化する
+ *   setName(value);
+ * }} onBlur={nameField.commit} />;
+ */
+export function useAsyncField(options: AsyncFieldOptions) {
+  return useManagedField(options);
+}
+
+// TrackedInputの互換形式はnullを渡し、入力の所有者を登録しません。
+// 公開Hookと入力部品が同じ管理処理を使うため、競合対策が二重実装になりません。
+function useManagedField(options: AsyncFieldOptions | null) {
+  const store = useAsyncTasks();
+  const enabled = options !== null;
+  const taskKey = options?.taskKey;
+  const value = options?.value;
+  const resetKey = options?.resetKey;
+  if (options) duration(options.timeoutMs, store.defaults.taskTimeoutMs);
+  const field = useRef<Field | null>(null);
+  const getOptions = useLatestCommitted(options);
+  const getConfig = useCallback((): FieldConfig => {
+    const current = getOptions();
+    if (!current) throw new Error("managed入力の設定が変更されました");
+    return current;
+  }, [getOptions]);
+  useCommitEffect(() => {
+    if (!enabled || taskKey === undefined) return;
+    const current = getOptions();
+    if (!current || typeof current.value !== "string")
+      throw new TypeError("managed入力はstringのvalueが必要です");
+    const mounted = store.mountField(taskKey, current.value, getConfig);
+    field.current = mounted;
+    return () => {
+      mounted.dispose();
+      if (field.current === mounted) field.current = null;
+    };
+  }, [enabled, store, taskKey, getOptions, getConfig]);
+  useCommitEffect(() => {
+    if (enabled && value !== undefined) field.current?.sync(value);
+  }, [enabled, value]);
+  const previousReset = useRef(resetKey);
+  useCommitEffect(() => {
+    if (!Object.is(previousReset.current, resetKey)) {
+      previousReset.current = resetKey;
+      if (value !== undefined) field.current?.reset(value);
+    }
+  }, [resetKey, value]);
+  const snapshot = useSyncExternalStore(
+    store.subscribe,
+    () =>
+      taskKey === undefined ? cleanField : store.getFieldSnapshot(taskKey),
+    () => cleanField,
+  );
+  const change = useCallback(
+    (input: string) => field.current?.change(input),
+    [],
+  );
+  const commit = useCallback(() => field.current?.commit(true), []);
+  const reset = useCallback((input: string) => field.current?.reset(input), []);
+  return { change, commit, reset, ...snapshot };
+}
+
 type InputBase = Omit<ComponentPropsWithoutRef<"input">, "onBlur"> & {
   taskKey: string;
 };
@@ -901,52 +984,29 @@ export const TrackedInput = forwardRef<HTMLInputElement, TrackedInputProps>(
       ...input
     } = props;
     const managed = normalize !== undefined;
-    if (managed) duration(timeoutMs, store.defaults.taskTimeoutMs);
-    const field = useRef<Field | null>(null);
-    const getProps = useLatestCommitted(props);
-    const getConfig = useCallback((): FieldConfig => {
-      const current = getProps();
-      if (!current.normalize)
-        throw new Error("managed入力の設定が変更されました");
-      return {
-        normalize: current.normalize,
-        onCommit: current.onCommit,
-        timeoutMs: current.timeoutMs,
-      };
-    }, [getProps]);
-    useCommitEffect(() => {
-      if (!managed) return;
-      const current = getProps();
-      if (typeof current.value !== "string")
-        throw new TypeError("managed入力はstringのvalueが必要です");
-      const mounted = store.mountField(taskKey, current.value, getConfig);
-      field.current = mounted;
-      return () => {
-        mounted.dispose();
-        if (field.current === mounted) field.current = null;
-      };
-    }, [managed, store, taskKey, getProps, getConfig]);
-    useCommitEffect(() => {
-      if (managed) field.current?.sync(input.value as string);
-    }, [managed, input.value]);
-    const previousReset = useRef(resetKey);
-    useCommitEffect(() => {
-      if (!Object.is(previousReset.current, resetKey)) {
-        previousReset.current = resetKey;
-        field.current?.reset(input.value as string);
-      }
-    }, [resetKey, input.value]);
+    const field = useManagedField(
+      managed
+        ? {
+            taskKey,
+            value: input.value as string,
+            normalize,
+            onCommit: onCommit!,
+            timeoutMs,
+            resetKey,
+          }
+        : null,
+    );
     return (
       <input
         {...input}
         ref={ref}
         onChange={(event) => {
-          field.current?.change(event.currentTarget.value);
+          field.change(event.currentTarget.value);
           onChange?.(event);
         }}
         onBlur={(event) => {
           if (managed) {
-            field.current?.commit(true);
+            field.commit();
             return;
           }
           try {

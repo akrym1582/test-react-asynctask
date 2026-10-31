@@ -3,51 +3,77 @@
 非同期blurで入力を確定してから、最新のレンダーのstateで保存するための共通処理です。
 **`src/AsyncTasks.tsx`の1ファイルだけコピー**して利用できます。React以外の実行時依存はありません。
 
-## 最小の使い方
+## 無期限で待つ設定
 
-フォームをProviderで囲みます。`useAfterTasks`はその子コンポーネント内で呼びます。
+`null`を指定するとタイムアウトしません。**入力タスク・総待機・保存の3種類**を無期限にする場合は、Providerに次を指定します。
 
 ```tsx
-import { useState } from "react";
-import { AsyncTasksProvider, TrackedInput, useAfterTasks } from "./AsyncTasks";
-
-function App() {
-  return (
-    <AsyncTasksProvider>
-      <EditForm />
-    </AsyncTasksProvider>
-  );
-}
-
-function EditForm() {
-  const [name, setName] = useState("");
-  const { run, busy, blocked } = useAfterTasks(
-    async (context) => {
-      await save({ name }, context);
-    },
-    { onError: (error) => console.error(error) },
-  );
-
-  return (
-    <>
-      <TrackedInput
-        taskKey="name"
-        value={name}
-        onChange={(event) => setName(event.currentTarget.value)}
-        normalize={(input, { signal }) => normalizeName(input, { signal })}
-        onCommit={setName}
-      />
-      <button type="button" onClick={run} disabled={busy || blocked}>
-        保存
-      </button>
-    </>
-  );
-}
+<AsyncTasksProvider
+  taskTimeoutMs={null}
+  waitTimeoutMs={null}
+  actionTimeoutMs={null}
+>
+  <EditForm />
+</AsyncTasksProvider>
 ```
 
-`run`は保存要求を予約するvoid関数です。`await run()`では保存完了を待てません。保存成功後の遷移などはaction内に書きます。普通のbuttonが使えます。
+省略時は従来どおり15秒・30秒・30秒です。`null`と省略（undefined）は異なります。`Infinity`や0は使いません。Hookの`waitTimeoutMs: null`・`actionTimeoutMs: null`、track/useAsyncFieldの`timeoutMs: null`で個別上書きもできます。外部APIやfetch、サーバー自体の期限が延びるわけではありません。
 
-`normalize`は通信・計算だけを行い、stateは変更しません。共通部品が最新の編集かを確認し、その結果だけを同期関数`onCommit`へ渡します。画面側で世代番号やフォームstateのrefコピーを管理する必要はありません。単一ファイルのソースにも各APIの使用例・内部設計の説明コメントを記載しています。
+無期限の処理がresolve/rejectしない間はbusyが継続します。`null`は期限だけを無効化し、明示的なcancelやunmount時の後始末は無効化しません。
+
+## TrackedInputなし: 既存のblur処理を登録する
+
+通常のinputとContextだけで使えます。`src/PlainBlurExample.tsx`に、Providerとエラー表示を含めた例があります。
+
+```tsx
+const { register } = useAsyncTasks();
+const { run, busy, blocked } = useAfterTasks(async () => {
+  await save(values);
+}, {
+  beforeWait: () => inputRef.current?.blur(),
+  onError: error => setError(String(error)),
+});
+
+<input ref={inputRef} onBlur={event => {
+  register(handleBlur(event.currentTarget.value), "name");
+}} />
+<button type="button" onClick={run} disabled={busy || blocked}>保存</button>
+```
+
+既存のhandleBlurはasync関数でよく、更新後のレンダーで保存処理を呼びます。ただし、古いhandleBlur内部の直接的なsetStateは取消できません。再編集との競合も防ぐ場合は次のHookを使います。
+
+## TrackedInputなし: 再編集時の古い結果も破棄する
+
+`useAsyncField`を使えば、入力DOMは通常のinputや既存のUIライブラリーの部品のままで利用できます。
+
+```tsx
+const [name, setName] = useState("");
+const nameField = useAsyncField({
+  taskKey: "name",
+  value: name,
+  normalize: (input, { signal }) => normalizeName(input, { signal }),
+  onCommit: setName,
+});
+const { run, busy, blocked } = useAfterTasks(async context => {
+  await save({ name }, context);
+}, { onError: error => console.error(error) });
+
+<input value={name} readOnly={busy || blocked}
+  onChange={event => {
+    const value = event.currentTarget.value;
+    nameField.change(value); // 編集時点で古い非同期結果を無効化
+    setName(value);          // 表示用のReact stateを更新
+  }}
+  onBlur={nameField.commit}
+/>
+<button type="button" onClick={run} disabled={busy || blocked}>保存</button>
+```
+
+上記HookはProviderの子コンポーネントで使用します。`run`時にもdirty項目を確定するので、blurが発生しなくても保存前に確定できます。`change`は画面のstateを変更しないため、setterも呼んでください。Hookの`phase`/`error`で項目状態を参照でき、`reset(value)`で明示的な再確定を要求できます。
+
+**標準のExampleFormも通常のinput + useAsyncFieldへ変更しました。TrackedInputは必須ではなく、互換性のため任意の補助部品として残しています。**
+
+`run`は実行予約用のvoid関数です。`await run()`では保存完了を待てません。保存後の遷移等はaction内に書きます。画面のフォームstateをrefへコピーする必要はありません。
 
 ## 内容
 
@@ -55,6 +81,7 @@ function EditForm() {
 | -------------------------- | -------------------------------------------------------- |
 | src/AsyncTasks.tsx         | Context、タスク管理、Hook、入力、submit補助（配布用）    |
 | src/ExampleForm.tsx        | 複数入力、IME、即時エラー表示、保存結果照会の例          |
+| src/PlainBlurExample.tsx   | 既存のasync blurをContextへ登録する最小例                |
 | src/LatestStateExample.tsx | await後に最新committed値を読む例                         |
 | src/exampleSaveAdapter.ts  | HTTPの契約例とメモリ上のfake。共通ファイルの依存ではない |
 | tests                      | 単体・結合・SSRテスト                                    |
@@ -80,7 +107,7 @@ Reactのイベント関数は、そのレンダー時点のstateを保持しま�
 />
 ```
 
-ただし、legacyBlurが直接行うsetStateやその他の副作用を共通処理から取り消すことはできません。**古い結果の上書きを防ぐにはnormalize/onCommit方式へ移行**してください。両方式は同時指定できません。
+ただし、legacyBlurが直接行うsetStateやその他の副作用を共通処理から取り消すことはできません。**古い結果の上書きを防ぐにはuseAsyncField等のnormalize/onCommit方式へ移行**してください。両方式は同時指定できません。
 
 managed形式は文字列のtext/search/email/tel/url/password入力専用です。初期valueは確定済みとして扱います。編集・外部value変更はdirtyとなり、blurまたはrunで確定されます。同じ値を明示的に再確定したい場合はresetKeyを変更するか、`tasks.resetField(key, value)`を使います。
 
@@ -92,6 +119,7 @@ managed形式は文字列のtext/search/email/tel/url/password入力専用です
 | useAfterTasks(action, options)                | run/busy/blocked/phase/requestId/reconcileを取得 |
 | useAsyncTasks().register(promise, key?)       | 開始済みPromiseの登録（互換形式）                |
 | useAsyncTasks().track(key, factory, options?) | signalを準備してから処理を開始                   |
+| useAsyncField(options)                        | 通常のinputから使える入力確定・世代管理Hook      |
 | useTaskField(key)                             | managed入力のclean/dirty/pending/error状態を購読 |
 | useLatestCommitted(value)                     | 最新committed値を返す安定したgetter              |
 | useAsyncSubmit(run)                           | IME対応のformイベント群                          |

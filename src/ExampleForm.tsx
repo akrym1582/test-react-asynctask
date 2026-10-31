@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import {
   AsyncTasksProvider,
-  TrackedInput,
+  useAsyncField,
   useAfterTasks,
   useAsyncSubmit,
   useTaskField,
@@ -24,10 +24,18 @@ type Props = {
   ) => Promise<"saved" | "not-saved" | "unknown">;
 };
 
-/** Providerはフォームごとに配置します。別フォームの通信を待たせません。 */
+/**
+ * 通常のinputだけを使う例です。TrackedInputは不要です。
+ * この例では3種類の期限をnullにし、無期限で待機します。
+ * 有限時間へ戻す場合は数値（ミリ秒）を指定するか、Providerの指定を省略します。
+ */
 export function ExampleForm(props: Props) {
   return (
-    <AsyncTasksProvider>
+    <AsyncTasksProvider
+      taskTimeoutMs={null}
+      waitTimeoutMs={null}
+      actionTimeoutMs={null}
+    >
       <Fields {...props} />
     </AsyncTasksProvider>
   );
@@ -66,40 +74,47 @@ function Fields({
         setError(error instanceof Error ? error.message : "処理に失敗しました"),
     },
   );
+  // normalizeとstate反映をHookへ渡します。DOMには通常のinputを使います。
+  const nameField = useAsyncField({
+    taskKey: "name",
+    value: values.name,
+    normalize: normalizeName,
+    onCommit: (name) => setValues((previous) => ({ ...previous, name })),
+  });
+  const addressField = useAsyncField({
+    taskKey: "address",
+    value: values.address,
+    normalize: normalizeAddress,
+    onCommit: (address) => setValues((previous) => ({ ...previous, address })),
+  });
   const submitEvents = useAsyncSubmit(run);
   return (
     <form ref={formRef} {...submitEvents}>
       <label>
         氏名
-        <TrackedInput
-          taskKey="name"
+        <input
           value={values.name}
           readOnly={busy || blocked}
           onChange={(event) => {
             const name = event.currentTarget.value;
+            nameField.change(name);
             setValues((previous) => ({ ...previous, name }));
           }}
-          // normalizeにはstateの変更を書きません。古い処理なら結果を破棄できます。
-          normalize={normalizeName}
-          // 最新世代の成功だけがonCommitへ到達します。
-          onCommit={(name) => setValues((previous) => ({ ...previous, name }))}
+          onBlur={nameField.commit}
         />
       </label>
       <FieldError taskKey="name" />
       <label>
         住所
-        <TrackedInput
-          taskKey="address"
+        <input
           value={values.address}
           readOnly={busy || blocked}
           onChange={(event) => {
             const address = event.currentTarget.value;
+            addressField.change(address);
             setValues((previous) => ({ ...previous, address }));
           }}
-          normalize={normalizeAddress}
-          onCommit={(address) =>
-            setValues((previous) => ({ ...previous, address }))
-          }
+          onBlur={addressField.commit}
         />
       </label>
       <FieldError taskKey="address" />
