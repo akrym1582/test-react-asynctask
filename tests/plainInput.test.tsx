@@ -28,72 +28,80 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-it("null disables input, overall wait and action deadlines, including hook overrides", async () => {
-  vi.useFakeTimers();
-  const normalize = deferred<string>();
-  const saving = deferred<void>();
-  const error = vi.fn();
-  const save = vi.fn((_value: string) => saving.promise);
-  function Form() {
-    const [value, setValue] = useState("");
-    const field = useAsyncField({
-      taskKey: "x",
-      value,
-      normalize: () => normalize.promise,
-      onCommit: setValue,
-    });
-    const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(
-      () => save(value),
-      {
-        onError: error,
-        waitTimeoutMs: null,
-        actionTimeoutMs: null,
-      },
+it.each([false, true])(
+  "waits indefinitely with default deadlines or explicit null overrides (override=%s)",
+  async (override) => {
+    vi.useFakeTimers();
+    const normalize = deferred<string>();
+    const saving = deferred<void>();
+    const error = vi.fn();
+    const save = vi.fn((_value: string) => saving.promise);
+    function Form() {
+      const [value, setValue] = useState("");
+      const field = useAsyncField({
+        taskKey: "x",
+        value,
+        normalize: () => normalize.promise,
+        timeoutMs: override ? null : undefined,
+        onCommit: setValue,
+      });
+      const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(
+        () => save(value),
+        {
+          onError: error,
+          waitTimeoutMs: override ? null : undefined,
+          actionTimeoutMs: override ? null : undefined,
+        },
+      );
+      return (
+        <>
+          <input
+            value={value}
+            onChange={(e) => {
+              field.change(e.currentTarget.value);
+              setValue(e.currentTarget.value);
+            }}
+            onBlur={field.commit}
+          />
+          <button onClick={runAfterTasks}>save</button>
+          <output>
+            {busy ? "busy" : isResultUnknown ? "isResultUnknown" : "idle"}
+          </output>
+        </>
+      );
+    }
+    render(
+      <StrictMode>
+        <AsyncTasksProvider
+          {...(override
+            ? { taskTimeoutMs: 5, waitTimeoutMs: 5, actionTimeoutMs: 5 }
+            : {})}
+        >
+          <Form />
+        </AsyncTasksProvider>
+      </StrictMode>,
     );
-    return (
-      <>
-        <input
-          value={value}
-          onChange={(e) => {
-            field.change(e.currentTarget.value);
-            setValue(e.currentTarget.value);
-          }}
-          onBlur={field.commit}
-        />
-        <button onClick={runAfterTasks}>save</button>
-        <output>
-          {busy ? "busy" : isResultUnknown ? "isResultUnknown" : "idle"}
-        </output>
-      </>
-    );
-  }
-  render(
-    <StrictMode>
-      <AsyncTasksProvider taskTimeoutMs={null}>
-        <Form />
-      </AsyncTasksProvider>
-    </StrictMode>,
-  );
-  fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });
-  fireEvent.click(screen.getByText("save"));
-  await act(async () => vi.advanceTimersByTimeAsync(3600000));
-  expect(save).not.toHaveBeenCalled();
-  expect(error).not.toHaveBeenCalled();
-  expect(screen.getByRole("status").textContent).toBe("busy");
-  await act(async () => normalize.resolve("normalized"));
-  expect(save).toHaveBeenCalledExactlyOnceWith("normalized");
-  await act(async () => vi.advanceTimersByTimeAsync(3600000));
-  expect(screen.getByRole("status").textContent).toBe("busy");
-  expect(error).not.toHaveBeenCalled();
-  await act(async () => saving.resolve());
-  expect(screen.getByRole("status").textContent).toBe("idle");
-  expect(vi.getTimerCount()).toBe(0);
-});
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });
+    fireEvent.click(screen.getByText("save"));
+    await act(async () => vi.advanceTimersByTimeAsync(3600000));
+    expect(save).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toBe("busy");
+    await act(async () => normalize.resolve("normalized"));
+    expect(save).toHaveBeenCalledExactlyOnceWith("normalized");
+    await act(async () => vi.advanceTimersByTimeAsync(3600000));
+    expect(screen.getByRole("status").textContent).toBe("busy");
+    expect(error).not.toHaveBeenCalled();
+    await act(async () => saving.resolve());
+    expect(screen.getByRole("status").textContent).toBe("idle");
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
 
 it("registerAsyncTask can wait indefinitely through Provider/store defaults", async () => {
   vi.useFakeTimers();
   const task = deferred<void>();
-  const store = createTaskStore({ taskTimeoutMs: null, waitTimeoutMs: null });
+  const store = createTaskStore();
   store.registerAsyncTask("input", () => task.promise);
   let completed = false;
   const waiting = store.wait().then(() => {

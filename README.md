@@ -29,19 +29,15 @@ import { useAsyncSubmit } from "./useAsyncSubmit";
 
 ## 無期限で待つ設定
 
-`null`を指定するとタイムアウトしません。入力タスク・総待機・保存の3種類を無期限にする場合は、Providerに次を指定します。
+入力タスク・総待機・保存の3種類は、**デフォルトで無期限**です。Providerには期限を指定せず使えます。
 
 ```tsx
-<AsyncTasksProvider
-  taskTimeoutMs={null}
-  waitTimeoutMs={null}
-  actionTimeoutMs={null}
->
+<AsyncTasksProvider>
   <EditForm />
 </AsyncTasksProvider>
 ```
 
-省略時は15秒・30秒・30秒です。`null`と省略（undefined）は異なります。`Infinity`や0は使いません。`useAsyncTasks`の`waitTimeoutMs`/`actionTimeoutMs`、`registerAsyncTask`/`useAsyncField`の`timeoutMs`で個別上書きできます。外部APIやサーバー自体の期限が延びるわけではありません。
+Providerの期限は省略時null（無期限）です。Hookやタスクの期限を省略（undefined）するとProviderの設定を継承し、nullを指定するとProviderが有限期限でも無期限に上書きします。`Infinity`や0は使いません。`useAsyncTasks`の`waitTimeoutMs`/`actionTimeoutMs`、`registerAsyncTask`/`useAsyncField`の`timeoutMs`で個別上書きできます。外部APIやサーバー自体の期限が延びるわけではありません。
 
 未完了の処理がある間はbusyが継続します。`null`は期限だけを無効化し、cancelやunmount時の後始末は無効化しません。
 
@@ -180,7 +176,7 @@ useAsyncTasksはタスク完了後にstateを更新し、対応する新しい�
 
 ## タイムアウトと結果不明
 
-既定値は入力タスク15秒、総待機30秒、action30秒。Providerで設定し、registerAsyncTask/useAsyncField/TrackedInputのtimeoutMsやuseAsyncTasksのwaitTimeoutMs/actionTimeoutMsで上書きできます。`null`は期限なし、0/負数/NaN/Infinityは設定エラーです。Providerの設定は初期化時に固定です。
+既定値は入力タスク・総待機・actionのすべてnull（無期限）です。Providerで設定し、registerAsyncTask/useAsyncField/TrackedInputのtimeoutMsやuseAsyncTasksのwaitTimeoutMs/actionTimeoutMsで上書きできます。`null`は期限なし、0/負数/NaN/Infinityは設定エラーです。Providerの設定は初期化時に固定です。
 
 入力timeoutや待機timeoutは保存を開始しません。managed処理はAbortSignalと世代の両方で無効化されます。signalを無視する通信そのものをJavaScriptから強制停止できるわけではありません。
 

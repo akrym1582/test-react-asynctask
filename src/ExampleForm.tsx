@@ -25,16 +25,12 @@ type Props = {
 
 /**
  * 通常のinputだけを使う例です。TrackedInputは不要です。
- * この例では3種類の期限をnullにし、無期限で待機します。
- * 有限時間へ戻す場合は数値（ミリ秒）を指定するか、Providerの指定を省略します。
+ * 期限の指定を省略し、既定の無期限で待機します。
+ * 期限を設ける場合は、Providerまたは各Hookへ数値（ミリ秒）を指定します。
  */
 export function ExampleForm(props: Props) {
   return (
-    <AsyncTasksProvider
-      taskTimeoutMs={null}
-      waitTimeoutMs={null}
-      actionTimeoutMs={null}
-    >
+    <AsyncTasksProvider>
       <Fields {...props} />
     </AsyncTasksProvider>
   );

@@ -89,13 +89,13 @@ export type TaskOptions<T = unknown> = {
   /** 最新かつ有効な処理に限り同期実行。非同期関数は禁止。 */
   onCommit?: (value: T) => void;
 };
-/** Provider初期設定。入力15秒、総待機30秒、保存30秒が既定です。 */
+/** Provider初期設定。入力・総待機・保存の期限はすべて省略時null（無期限）です。 */
 export type TasksConfig = {
-  /** タスク1件の既定期限。省略時15000ms、nullは無期限。登録時のtimeoutMsで上書きできます。 */
+  /** タスク1件の既定期限。省略時null（無期限）。登録時のtimeoutMsで上書きできます。 */
   taskTimeoutMs?: Timeout;
-  /** 入力確定を待つ総期限の既定値。省略時30000ms、nullは無期限。Hook側で上書きできます。 */
+  /** 入力確定を待つ総期限の既定値。省略時null（無期限）。Hook側で上書きできます。 */
   waitTimeoutMs?: Timeout;
-  /** 保存処理の既定期限。省略時30000ms、nullは無期限。Hook側で上書きできます。 */
+  /** 保存処理の既定期限。省略時null（無期限）。Hook側で上書きできます。 */
   actionTimeoutMs?: Timeout;
   /** タスクが失敗・期限切れになった時点の同期通知。保存要求がなくても呼ばれます。 */
   onTaskError?: (error: AsyncTaskError) => void;
@@ -198,9 +198,9 @@ type ActionOwner = {
  */
 export function createTaskStore(config: TasksConfig = {}) {
   const defaults = {
-    taskTimeoutMs: duration(config.taskTimeoutMs, 15000),
-    waitTimeoutMs: duration(config.waitTimeoutMs, 30000),
-    actionTimeoutMs: duration(config.actionTimeoutMs, 30000),
+    taskTimeoutMs: duration(config.taskTimeoutMs, null),
+    waitTimeoutMs: duration(config.waitTimeoutMs, null),
+    actionTimeoutMs: duration(config.actionTimeoutMs, null),
   };
   const tasks = new Map<string | symbol, InternalTask>();
   const failures = new Map<string | symbol, AsyncTaskError>();
@@ -606,8 +606,8 @@ const Context = createContext<TaskStore | null>(null);
  * フォームごとに置く管理範囲です。この範囲内の入力を待ち、保存操作を1つに制限します。
  * configはScope作成時に固定します。変更にはProviderをkeyで再作成してください。
  * @example
- * // 3種類すべてnullにすると、入力・確定待機・保存を無期限で待てます。
- * <AsyncTasksProvider taskTimeoutMs={null} waitTimeoutMs={null} actionTimeoutMs={null}>
+ * // 期限を省略すると、入力・確定待機・保存をすべて無期限で待ちます。
+ * <AsyncTasksProvider>
  *   <EditForm />
  * </AsyncTasksProvider>
  */
@@ -712,14 +712,14 @@ export type AsyncTasksOptions = {
   beforeWait?: () => void;
   /**
    * 入力確定を待つ総期限（ミリ秒）。runAfterTasks受付時から計測します。
-   * 省略時はProviderのwaitTimeoutMs（既定30秒）、nullなら無期限です。
+   * 省略時はProviderのwaitTimeoutMs（既定null・無期限）、nullなら無期限です。
    * 超過時は保存を開始せず入力処理へ取消を要求します。isResultUnknownはfalseです。
    * JavaScriptの同期処理を途中で強制終了することはできません。
    */
   waitTimeoutMs?: Timeout;
   /**
    * action開始から保存結果を待つ期限（ミリ秒）。入力待機の時間は含みません。
-   * 省略時はProviderのactionTimeoutMs（既定30秒）、nullなら無期限です。
+   * 省略時はProviderのactionTimeoutMs（既定null・無期限）、nullなら無期限です。
    * 超過時はサーバーで保存済みの可能性があるためisResultUnknownをtrueにします。
    * 自動再送はせず、reconcileで実際の保存結果を照会してください。
    */

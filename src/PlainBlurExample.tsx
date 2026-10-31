@@ -18,11 +18,7 @@ export function PlainBlurExample({
   save: (value: string) => Promise<void>;
 }) {
   return (
-    <AsyncTasksProvider
-      taskTimeoutMs={null}
-      waitTimeoutMs={null}
-      actionTimeoutMs={null}
-    >
+    <AsyncTasksProvider>
       <Fields normalize={normalize} save={save} />
     </AsyncTasksProvider>
   );
