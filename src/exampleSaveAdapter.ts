@@ -1,9 +1,12 @@
-import type { ActionContext } from "./AsyncTasks";
+import type { AfterTasksContext } from "./AfterTasks";
 
 /** 任意のHTTP通信例。エラー表示や再送判断はAPI呼び出し側で行います。 */
 export function createHttpSaveAdapter<T>(url: string) {
   return {
-    async save(value: T, { signal, requestId }: ActionContext): Promise<void> {
+    async save(
+      value: T,
+      { signal, requestId }: AfterTasksContext,
+    ): Promise<void> {
       const response = await fetch(url, {
         method: "POST",
         signal,
@@ -23,7 +26,7 @@ export function createHttpSaveAdapter<T>(url: string) {
 export function createMemorySaveAdapter<T>() {
   const records = new Map<string, string>();
   return {
-    async save(value: T, { requestId }: ActionContext) {
+    async save(value: T, { requestId }: AfterTasksContext) {
       const body = JSON.stringify(value);
       if (records.has(requestId) && records.get(requestId) !== body)
         throw new Error("冪等性キーのpayloadが一致しません");

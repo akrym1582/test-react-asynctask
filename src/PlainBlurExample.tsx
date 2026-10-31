@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { AsyncTasksProvider, useAsyncTasks } from "./AsyncTasks";
+import { AfterTasksProvider, useAfterTasks } from "./AfterTasks";
 
 /**
  * 通常のinputから非同期処理を登録する、中心ファイルだけの使用例です。
- * TrackedInputもuseAsyncFieldも必要ありません。
+ * AfterTasksInputもuseAfterTasksFieldも必要ありません。
  * keyを省略した処理はすべて独立して待ちます。再編集時の古い結果も破棄したい場合は、
- * ExampleFormのuseAsyncField方式を使ってください。
+ * ExampleFormのuseAfterTasksField方式を使ってください。
  */
 export function PlainBlurExample({
   normalize,
@@ -18,9 +18,9 @@ export function PlainBlurExample({
   save: (value: string) => Promise<void>;
 }) {
   return (
-    <AsyncTasksProvider>
+    <AfterTasksProvider>
       <Fields normalize={normalize} save={save} />
-    </AsyncTasksProvider>
+    </AfterTasksProvider>
   );
 }
 function Fields({
@@ -35,7 +35,7 @@ function Fields({
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
+  const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(
     async () => {
       await save(value);
     },

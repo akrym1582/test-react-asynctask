@@ -1,11 +1,14 @@
-import { useAsyncSubmit } from "./useAsyncSubmit";
-import { useAsyncField, useTaskField } from "./useAsyncField";
+import { useAfterTasksSubmit } from "./useAfterTasksSubmit";
+import {
+  useAfterTasksField,
+  useAfterTasksFieldState,
+} from "./useAfterTasksField";
 import { useState } from "react";
 import {
-  AsyncTasksProvider,
-  useAsyncTasks,
-  type ActionContext,
-} from "./AsyncTasks";
+  AfterTasksProvider,
+  useAfterTasks,
+  type AfterTasksContext,
+} from "./AfterTasks";
 
 type Values = { name: string; address: string };
 type Props = {
@@ -17,24 +20,24 @@ type Props = {
     value: string,
     context: { signal: AbortSignal },
   ) => Promise<string>;
-  save: (values: Values, context: ActionContext) => Promise<void>;
+  save: (values: Values, context: AfterTasksContext) => Promise<void>;
 };
 
 /**
- * 通常のinputだけを使う例です。TrackedInputは不要です。
+ * 通常のinputだけを使う例です。AfterTasksInputは不要です。
  * 期限の指定を省略し、既定の無期限で待機します。
  * 期限を設ける場合は、Providerまたは各Hookへ数値（ミリ秒）を指定します。
  */
 export function ExampleForm(props: Props) {
   return (
-    <AsyncTasksProvider>
+    <AfterTasksProvider>
       <Fields {...props} />
-    </AsyncTasksProvider>
+    </AfterTasksProvider>
   );
 }
 
 function FieldError({ taskKey }: { taskKey: string }) {
-  const field = useTaskField(taskKey);
+  const field = useAfterTasksFieldState(taskKey);
   return field.phase === "error" ? (
     <span role="alert">入力を確認して再度フォーカスを外してください。</span>
   ) : null;
@@ -43,7 +46,7 @@ function FieldError({ taskKey }: { taskKey: string }) {
 function Fields({ normalizeName, normalizeAddress, save }: Props) {
   const [values, setValues] = useState<Values>({ name: "", address: "" });
   const [error, setError] = useState<string | null>(null);
-  const { runAfterTasks, isRunning } = useAsyncTasks(
+  const { runAfterTasks, isRunning } = useAfterTasks(
     // valuesはactionを開始するレンダーでのsnapshotです。
     // signalとrequestIdを通信層まで渡すと、中断・ログ記録に利用できます。
     async (context) => {
@@ -58,19 +61,19 @@ function Fields({ normalizeName, normalizeAddress, save }: Props) {
     },
   );
   // normalizeとstate反映をHookへ渡します。DOMには通常のinputを使います。
-  const nameField = useAsyncField({
+  const nameField = useAfterTasksField({
     taskKey: "name",
     value: values.name,
     normalize: normalizeName,
     onCommit: (name) => setValues((previous) => ({ ...previous, name })),
   });
-  const addressField = useAsyncField({
+  const addressField = useAfterTasksField({
     taskKey: "address",
     value: values.address,
     normalize: normalizeAddress,
     onCommit: (address) => setValues((previous) => ({ ...previous, address })),
   });
-  const submitEvents = useAsyncSubmit(runAfterTasks);
+  const submitEvents = useAfterTasksSubmit(runAfterTasks);
   return (
     <form {...submitEvents}>
       <label>

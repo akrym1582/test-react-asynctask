@@ -10,11 +10,14 @@ import {
 import { StrictMode, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import {
-  AsyncTasksProvider,
-  createTaskStore,
-  useAsyncTasks,
-} from "../src/AsyncTasks";
-import { createFieldStore, useAsyncField } from "../src/useAsyncField";
+  AfterTasksProvider,
+  createAfterTasksStore,
+  useAfterTasks,
+} from "../src/AfterTasks";
+import {
+  createAfterTasksFieldStore,
+  useAfterTasksField,
+} from "../src/useAfterTasksField";
 import { deferred, never } from "./helpers";
 afterEach(() => {
   cleanup();
@@ -32,14 +35,14 @@ it.each([false, true])(
     const save = vi.fn((_value: string) => saving.promise);
     function Form() {
       const [value, setValue] = useState("");
-      const field = useAsyncField({
+      const field = useAfterTasksField({
         taskKey: "x",
         value,
         normalize: () => normalize.promise,
         timeoutMs: override ? null : undefined,
         onCommit: setValue,
       });
-      const { runAfterTasks, isRunning } = useAsyncTasks(() => save(value), {
+      const { runAfterTasks, isRunning } = useAfterTasks(() => save(value), {
         onError: error,
         waitTimeoutMs: override ? null : undefined,
         actionTimeoutMs: override ? null : undefined,
@@ -61,13 +64,13 @@ it.each([false, true])(
     }
     render(
       <StrictMode>
-        <AsyncTasksProvider
+        <AfterTasksProvider
           {...(override
             ? { taskTimeoutMs: 5, waitTimeoutMs: 5, actionTimeoutMs: 5 }
             : {})}
         >
           <Form />
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       </StrictMode>,
     );
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });
@@ -94,13 +97,13 @@ it("通常inputでも次のblur前の再編集で古い結果を無効化する"
   const saved = vi.fn();
   function Form() {
     const [value, setValue] = useState("");
-    const field = useAsyncField({
+    const field = useAfterTasksField({
       taskKey: "x",
       value,
       normalize: (v) => (v === "A" ? old.promise : current.promise),
       onCommit: setValue,
     });
-    const { runAfterTasks } = useAsyncTasks(() => saved(value), {
+    const { runAfterTasks } = useAfterTasks(() => saved(value), {
       onError: vi.fn(),
     });
     return (
@@ -119,9 +122,9 @@ it("通常inputでも次のblur前の再編集で古い結果を無効化する"
   }
   render(
     <StrictMode>
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form />
-      </AsyncTasksProvider>
+      </AfterTasksProvider>
     </StrictMode>,
   );
   const input = screen.getByRole("textbox");
@@ -142,11 +145,15 @@ it("再編集時に古い結果を無効化し最新の未確定入力を待機�
   const b = deferred<string>();
   const commit = vi.fn();
   const normalize = vi.fn((v: string) => (v === "A" ? a.promise : b.promise));
-  const store = createTaskStore();
-  const field = createFieldStore(store).mountField("name", "", () => ({
-    normalize,
-    onCommit: commit,
-  }));
+  const store = createAfterTasksStore();
+  const field = createAfterTasksFieldStore(store).mountField(
+    "name",
+    "",
+    () => ({
+      normalize,
+      onCommit: commit,
+    }),
+  );
   field.change("A");
   field.commit();
   field.commit();
@@ -166,9 +173,9 @@ it("再編集時に古い結果を無効化し最新の未確定入力を待機�
 // 確認する状況: 古い入力の処理を未完了のまま残し、新しい値へ編集して待機します。
 // 期待する結果: 古い処理を待ち続けず、新しい値の確定だけで待機が完了しonCommitを1回呼びます。
 it("終わらない古い入力処理に最新入力の保存を妨げさせない", async () => {
-  const store = createTaskStore();
+  const store = createAfterTasksStore();
   const commit = vi.fn();
-  const field = createFieldStore(store).mountField("x", "", () => ({
+  const field = createAfterTasksFieldStore(store).mountField("x", "", () => ({
     normalize: (v) => (v === "old" ? never() : v),
     onCommit: commit,
   }));
@@ -183,16 +190,16 @@ it("終わらない古い入力処理に最新入力の保存を妨げさせな�
 // 確認する状況: A・Bを失敗させ、Aだけ再成功させてからBを削除します。さらに同じkeyの入力を作り直します。
 // 期待する結果: Aの成功だけではBの失敗を消さず、Bの削除後に待機できます。古い入力のdisposeは新しい入力を消さず、同じkeyの二重登録は拒否します。
 it("項目別のエラーと入力の所有者を独立して管理する", async () => {
-  const store = createTaskStore();
+  const store = createAfterTasksStore();
   let valid = false;
-  const a = createFieldStore(store).mountField("a", "", () => ({
+  const a = createAfterTasksFieldStore(store).mountField("a", "", () => ({
     normalize: () => {
       if (!valid) throw Error("a");
       return "ok";
     },
     onCommit: () => {},
   }));
-  const b = createFieldStore(store).mountField("b", "", () => ({
+  const b = createAfterTasksFieldStore(store).mountField("b", "", () => ({
     normalize: () => {
       throw Error("b");
     },
@@ -207,13 +214,17 @@ it("項目別のエラーと入力の所有者を独立して管理する", asyn
   b.dispose();
   await store.wait();
   a.dispose();
-  const replacement = createFieldStore(store).mountField("a", "", () => ({
-    normalize: (v) => v,
-    onCommit: () => {},
-  }));
+  const replacement = createAfterTasksFieldStore(store).mountField(
+    "a",
+    "",
+    () => ({
+      normalize: (v) => v,
+      onCommit: () => {},
+    }),
+  );
   a.dispose();
   expect(() =>
-    createFieldStore(store).mountField("a", "", () => ({
+    createAfterTasksFieldStore(store).mountField("a", "", () => ({
       normalize: (v) => v,
       onCommit: () => {},
     })),
@@ -224,12 +235,12 @@ it("項目別のエラーと入力の所有者を独立して管理する", asyn
 // 確認する状況: 処理中の入力を外部値へ変更し、古い処理を完了させます。新しい入力のonCommitは例外を投げます。
 // 期待する結果: 古い結果ではonCommitを呼ばず、新しい入力のstate反映失敗によって待機を失敗させます。
 it("外部reset後の古い結果を捨てstate反映時の例外も失敗として扱う", async () => {
-  const store = createTaskStore();
+  const store = createAfterTasksStore();
   const deferredTask = deferred<string>();
   const commit = vi.fn(() => {
     throw Error("commit");
   });
-  const field = createFieldStore(store).mountField("x", "", () => ({
+  const field = createAfterTasksFieldStore(store).mountField("x", "", () => ({
     normalize: (v) => (v === "old" ? deferredTask.promise : v),
     onCommit: commit,
   }));
@@ -247,10 +258,10 @@ it("外部reset後の古い結果を捨てstate反映時の例外も失敗とし
 // その後、別の処理を未完了のままProvider相当の管理範囲を破棄します。
 // 期待する結果: 管理本体の取得だけではcoreを変更せず、再試行では最新値を反映し、破棄では入力・未完了タスク・待機状態を片付けます。
 it("任意の入力管理を待機・再試行・Scope破棄へ接続できる", async () => {
-  const store = createTaskStore();
+  const store = createAfterTasksStore();
   const release = store.attach();
-  const fields = createFieldStore(store);
-  expect(createFieldStore(store)).toBe(fields);
+  const fields = createAfterTasksFieldStore(store);
+  expect(createAfterTasksFieldStore(store)).toBe(fields);
   expect(store.getRevision()).toBe(0);
   let valid = false;
   const pending = deferred<string>();

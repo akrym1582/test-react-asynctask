@@ -7,23 +7,34 @@ import { spawnSync } from "node:child_process";
 const variants = [
   {
     name: "core",
-    files: ["AsyncTasks.tsx"],
+    files: ["AfterTasks.tsx"],
     usage: `
-import { useAsyncTasks } from "./AsyncTasks";
-// @ts-expect-error 分離されていた旧Hookは公開しない
-import { useAfterTasks } from "./AsyncTasks";
+import { useAfterTasks } from "./AfterTasks";
+// @ts-expect-error 旧Hook名の互換exportは提供しない
+import { useAsyncTasks } from "./AfterTasks";
+// @ts-expect-error 旧Provider名の互換exportは提供しない
+import { AsyncTasksProvider } from "./AfterTasks";
 // @ts-expect-error 保存結果を分類する専用例外は共通部品から削除
-import { UncertainActionError } from "./AsyncTasks";
+import { UncertainActionError } from "./AfterTasks";
 // @ts-expect-error 入力Hookは中心ファイルから再exportしない
-import { useAsyncField } from "./AsyncTasks";
+import { useAfterTasksField } from "./AfterTasks";
 // @ts-expect-error 入力の購読Hookも任意ファイルに置く
-import { useTaskField } from "./AsyncTasks";
+import { useAfterTasksFieldState } from "./AfterTasks";
 // @ts-expect-error formイベント補助も任意ファイルに置く
-import { useAsyncSubmit } from "./AsyncTasks";
+import { useAfterTasksSubmit } from "./AfterTasks";
 // @ts-expect-error 最新値getterも任意ファイルに置く
-import { useLatestCommitted } from "./AsyncTasks";
+import { useLatestCommitted } from "./AfterTasks";
+import type {
+  AfterTasksConfig, AfterTasksRunOptions, AfterTasksOptions,
+  AfterTasksSnapshot, AfterTasksExecution, AfterTasksContext, AfterTasksPhase,
+  AfterTasksStore, AfterTasksHandle, AfterTasksResult, AfterTasksStatus,
+  AfterTasksErrorKind, AfterTasksTimeout, AfterTasksParticipant,
+} from "./AfterTasks";
+import { AfterTasksProvider, createAfterTasksStore, AfterTasksError } from "./AfterTasks";
+// @ts-expect-error 旧型名の互換exportは提供しない
+import type { TaskOptions } from "./AfterTasks";
 function Example() {
-  const tasks = useAsyncTasks();
+  const tasks = useAfterTasks();
   const registeredTasksAreRunning: boolean = tasks.hasPendingTasks;
   // @ts-expect-error 任意の入力管理本体を中心ファイルに戻さない
   tasks.mountField("name", "", () => ({}));
@@ -40,10 +51,10 @@ function Example() {
   tasks.track("name", () => "ok");
   // @ts-expect-error registerという汎用名も提供しない
   tasks.register(Promise.resolve());
-  const { runAfterTasks, isRunning, hasPendingTasks } = useAsyncTasks(() => {}, { onError: console.error });
+  const { runAfterTasks, isRunning, hasPendingTasks } = useAfterTasks(() => {}, { onError: console.error });
   // @ts-expect-error 登録だけの呼び出しには実行操作を公開しない
   tasks.runAfterTasks();
-  const executor = useAsyncTasks(() => {}, { onError: console.error });
+  const executor = useAfterTasks(() => {}, { onError: console.error });
   const pendingTasks: boolean = executor.hasPendingTasks;
   // @ts-expect-error 旧名は提供しない
   executor.run();
@@ -62,32 +73,32 @@ function Example() {
   },
   {
     name: "fields",
-    files: ["AsyncTasks.tsx", "useLatestCommitted.ts", "useAsyncField.ts"],
+    files: ["AfterTasks.tsx", "useLatestCommitted.ts", "useAfterTasksField.ts"],
     usage: `
-import { useAsyncField, useTaskField } from "./useAsyncField";
+import { useAfterTasksField, useAfterTasksFieldState } from "./useAfterTasksField";
 function Example() {
-  const field = useAsyncField({ taskKey: "name", value: "", normalize: v => v.trim(), onCommit: () => {} });
-  const snapshot = useTaskField("name");
+  const field = useAfterTasksField({ taskKey: "name", value: "", normalize: v => v.trim(), onCommit: () => {} });
+  const snapshot = useAfterTasksFieldState("name");
   // @ts-expect-error 互換モード用のnull設定は提供しない
-  useAsyncField(null);
+  useAfterTasksField(null);
   return <input onBlur={field.commit} aria-invalid={snapshot.phase === "error"} />;
 }`,
   },
   {
     name: "input",
     files: [
-      "AsyncTasks.tsx",
+      "AfterTasks.tsx",
       "useLatestCommitted.ts",
-      "useAsyncField.ts",
-      "TrackedInput.tsx",
+      "useAfterTasksField.ts",
+      "AfterTasksInput.tsx",
     ],
     usage: `
-import { TrackedInput } from "./TrackedInput";
-const input = <TrackedInput taskKey="name" value="" normalize={v => v} onCommit={() => {}} />;
+import { AfterTasksInput } from "./AfterTasksInput";
+const input = <AfterTasksInput taskKey="name" value="" normalize={v => v} onCommit={() => {}} />;
 // @ts-expect-error async onBlurの互換形式は提供しない
-const oldInput = <TrackedInput taskKey="name" onBlur={async () => {}} />;
+const oldInput = <AfterTasksInput taskKey="name" onBlur={async () => {}} />;
 // @ts-expect-error 現行形式にonBlurを混在させない
-const mixedInput = <TrackedInput taskKey="name" value="" normalize={v => v} onCommit={() => {}} onBlur={() => {}} />;
+const mixedInput = <AfterTasksInput taskKey="name" value="" normalize={v => v} onCommit={() => {}} onBlur={() => {}} />;
 `,
   },
   {
@@ -102,13 +113,13 @@ function Example() {
   },
   {
     name: "submit",
-    files: ["AsyncTasks.tsx", "useAsyncSubmit.ts"],
+    files: ["AfterTasks.tsx", "useAfterTasksSubmit.ts"],
     usage: `
-import { useAsyncTasks } from "./AsyncTasks";
-import { useAsyncSubmit } from "./useAsyncSubmit";
+import { useAfterTasks } from "./AfterTasks";
+import { useAfterTasksSubmit } from "./useAfterTasksSubmit";
 function Example() {
-  const { runAfterTasks } = useAsyncTasks(() => {}, { onError: console.error });
-  return <form {...useAsyncSubmit(runAfterTasks)}><button>save</button></form>;
+  const { runAfterTasks } = useAfterTasks(() => {}, { onError: console.error });
+  return <form {...useAfterTasksSubmit(runAfterTasks)}><button>save</button></form>;
 }`,
   },
 ];

@@ -10,11 +10,11 @@ import {
 import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  AsyncTasksProvider,
-  createTaskStore,
-  useAsyncTasks,
-  type ActionContext,
-} from "../src/AsyncTasks";
+  AfterTasksProvider,
+  createAfterTasksStore,
+  useAfterTasks,
+  type AfterTasksContext,
+} from "../src/AfterTasks";
 import { deferred, flush, never } from "./helpers";
 afterEach(() => {
   cleanup();
@@ -24,7 +24,7 @@ describe("タスクの登録・待機と実行制御", () => {
   // 確認する状況: 先に登録したタスクを待っている途中で、別のkeyのタスクを追加します。
   // 期待する結果: 先のタスクだけ完了しても待機は終わらず、追加したタスクも完了してから終了します。
   it("待機中に追加されたタスクもすべて完了するまで待つ", async () => {
-    const store = createTaskStore();
+    const store = createAfterTasksStore();
     const first = deferred<void>();
     const second = deferred<void>();
     store.registerAsyncTask(() => first.promise, { key: "first" });
@@ -43,7 +43,7 @@ describe("タスクの登録・待機と実行制御", () => {
   // 確認する状況: nameの処理を失敗させ、待機を繰り返した後、同じkeyで成功する処理を登録します。
   // 期待する結果: 再度待機してもエラーは残り、同じkeyの成功後にだけ待機が正常終了します。
   it("同じ項目が成功するまで入力エラーを保持する", async () => {
-    const store = createTaskStore();
+    const store = createAfterTasksStore();
     store.registerAsyncTask(() => Promise.reject(new Error("invalid")), {
       key: "name",
     });
@@ -55,7 +55,7 @@ describe("タスクの登録・待機と実行制御", () => {
   // 確認する状況: 要求Aを開始して解除し、要求Bの開始後にもう一度Aの解除を試みます。
   // 期待する結果: 実行中の追加要求は拒否し、古いAの解除ではBのisRunningは消えず、Bの解除でidleへ戻ります。
   it("同じProvider内の重複実行と古い要求によるロック解除を防ぐ", () => {
-    const store = createTaskStore();
+    const store = createAfterTasksStore();
     const first = store.beginAction()!;
     expect(store.beginAction()).toBeNull();
     store.release(first);
@@ -70,7 +70,7 @@ describe("同じkeyのタスク置き換え", () => {
   // 確認する状況: 古いname処理を新しい成功処理へ置き換えてから、古いPromiseを失敗させます。
   // 期待する結果: 古い失敗を現在のエラーとして扱わず、待機は正常終了します。
   it("置き換え前のタスクが遅れて失敗しても新しい成功を取り消さない", async () => {
-    const store = createTaskStore();
+    const store = createAfterTasksStore();
     const old = deferred<void>();
     store.registerAsyncTask(() => old.promise, { key: "name" });
     store.registerAsyncTask(() => Promise.resolve(), { key: "name" });
@@ -85,10 +85,15 @@ describe("タスクの期限・取消・背景処理", () => {
   // 期待する結果: 0・負数・NaN・InfinityはRangeErrorとなり、無期限を表すnullは受け付けます。
   it("期限には正の有限値またはnullだけを受け付ける", () => {
     for (const n of [0, -1, NaN, Infinity])
-      expect(() => createTaskStore({ taskTimeoutMs: n })).toThrow(RangeError);
-    expect(() => createTaskStore({ taskTimeoutMs: null })).not.toThrow();
+      expect(() => createAfterTasksStore({ taskTimeoutMs: n })).toThrow(
+        RangeError,
+      );
+    expect(() => createAfterTasksStore({ taskTimeoutMs: null })).not.toThrow();
     expect(() =>
-      createTaskStore().registerAsyncTask(() => 1, { key: "x", timeoutMs: 0 }),
+      createAfterTasksStore().registerAsyncTask(() => 1, {
+        key: "x",
+        timeoutMs: 0,
+      }),
     ).toThrow();
   });
   // 確認する状況: 入力処理の期限を10msに設定し、期限切れ後に元のPromiseを成功させます。
@@ -98,7 +103,7 @@ describe("タスクの期限・取消・背景処理", () => {
     const task = deferred<string>();
     const commit = vi.fn();
     const onTaskError = vi.fn();
-    const store = createTaskStore({ taskTimeoutMs: 10, onTaskError });
+    const store = createAfterTasksStore({ taskTimeoutMs: 10, onTaskError });
     const handle = store.registerAsyncTask(() => task.promise, {
       key: "x",
       onCommit: commit,
@@ -118,7 +123,7 @@ describe("タスクの期限・取消・背景処理", () => {
   // 期待する結果: ハンドルの状態はcancelledのままで、遅い失敗が待機処理へ伝わらず正常終了します。
   it("取り消したタスクの遅い失敗を保存阻止のエラーにしない", async () => {
     const task = deferred<void>();
-    const store = createTaskStore();
+    const store = createAfterTasksStore();
     const h = store.registerAsyncTask(() => task.promise, { key: "x" });
     h.cancel();
     task.reject(new Error("late"));
@@ -130,7 +135,7 @@ describe("タスクの期限・取消・背景処理", () => {
   // 期待する結果: タスク追加で計測をやり直さず20msで待機が失敗します。最後に入力を取り消すとタイマーも残りません。
   it("タスクが増えても総待機期限を延長しない", async () => {
     vi.useFakeTimers();
-    const store = createTaskStore({ taskTimeoutMs: null });
+    const store = createAfterTasksStore({ taskTimeoutMs: null });
     store.registerAsyncTask(never, { key: "a" });
     const wait = store.wait({ timeoutMs: 20 });
     const assertion = expect(wait).rejects.toThrow("タイムアウト");
@@ -145,7 +150,7 @@ describe("タスクの期限・取消・背景処理", () => {
   // 期待する結果: どちらも待機終了を妨げず、背景処理の失敗はonTaskErrorへ1回通知します。
   it("背景タスクの未完了や失敗は保存待機を妨げない", async () => {
     const onTaskError = vi.fn();
-    const store = createTaskStore({ onTaskError });
+    const store = createAfterTasksStore({ onTaskError });
     const h = store.registerAsyncTask(never, { key: "poll", blocking: false });
     await store.wait();
     store.registerAsyncTask(
@@ -162,7 +167,7 @@ describe("タスクの期限・取消・背景処理", () => {
   // 期待する結果: 通知先の例外で内部管理が壊れず、元の失敗を保持した後、新しい成功によって正常待機へ戻れます。
   it("onTaskErrorが例外を投げても後続タスクで回復できる", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    const store = createTaskStore({
+    const store = createAfterTasksStore({
       onTaskError: () => {
         throw Error("callback");
       },
@@ -189,7 +194,7 @@ describe("エラー通知後の実行状態の後始末", () => {
       throw Error("action");
     });
     function Form() {
-      const { runAfterTasks, isRunning } = useAsyncTasks(action, {
+      const { runAfterTasks, isRunning } = useAfterTasks(action, {
         onError: () => {
           throw Error("handler");
         },
@@ -201,9 +206,9 @@ describe("エラー通知後の実行状態の後始末", () => {
       );
     }
     render(
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form />
-      </AsyncTasksProvider>,
+      </AfterTasksProvider>,
     );
     fireEvent.click(screen.getByText("runAfterTasks"));
     await flush();
@@ -218,7 +223,7 @@ describe("エラー通知後の実行状態の後始末", () => {
 it("設定を省略したタスク登録と待機は無期限となる", async () => {
   vi.useFakeTimers();
   const task = deferred<void>();
-  const store = createTaskStore();
+  const store = createAfterTasksStore();
   store.registerAsyncTask(() => task.promise, { key: "input" });
   let completed = false;
   const waiting = store.wait().then(() => {
@@ -236,7 +241,7 @@ it("設定を省略したタスク登録と待機は無期限となる", async (
 it("タスク個別のnullでProviderの有限期限を無効化する", async () => {
   vi.useFakeTimers();
   const task = deferred<string>();
-  const store = createTaskStore({ taskTimeoutMs: 5 });
+  const store = createAfterTasksStore({ taskTimeoutMs: 5 });
   const handle = store.registerAsyncTask(() => task.promise, {
     key: "x",
     timeoutMs: null,
@@ -260,7 +265,7 @@ it.each([undefined, true, false])(
     const error = vi.fn();
     function Form() {
       const [value, setValue] = useState("old");
-      const { registerAsyncTask, runAfterTasks } = useAsyncTasks(
+      const { registerAsyncTask, runAfterTasks } = useAfterTasks(
         () => save(value),
         {
           blurActiveElement,
@@ -288,9 +293,9 @@ it.each([undefined, true, false])(
       );
     }
     render(
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form />
-      </AsyncTasksProvider>,
+      </AfterTasksProvider>,
     );
     const input = screen.getByLabelText("value");
     input.focus();
@@ -318,7 +323,7 @@ it("自動blurの失敗を通知し保存を始めずisRunningを解除する", 
   const beforeWait = vi.fn();
   const save = vi.fn();
   function Form() {
-    const { runAfterTasks, isRunning } = useAsyncTasks(save, {
+    const { runAfterTasks, isRunning } = useAfterTasks(save, {
       onError,
       beforeWait,
     });
@@ -331,9 +336,9 @@ it("自動blurの失敗を通知し保存を始めずisRunningを解除する", 
     );
   }
   render(
-    <AsyncTasksProvider>
+    <AfterTasksProvider>
       <Form />
-    </AsyncTasksProvider>,
+    </AfterTasksProvider>,
   );
   const input = screen.getByRole("textbox");
   input.focus();
@@ -351,25 +356,25 @@ it("自動blurの失敗を通知し保存を始めずisRunningを解除する", 
   }
 });
 // 確認する状況: 同じProvider内の別コンポーネントで保存を開始し、通常のAPIエラーで終了させます。
-// 期待する結果: 引数なしのuseAsyncTasksからも実行中はisRunning、APIエラーによる終了後はidleへの変化を購読できます。
+// 期待する結果: 引数なしのuseAfterTasksからも実行中はisRunning、APIエラーによる終了後はidleへの変化を購読できます。
 it("登録専用Hookにも別コンポーネントの実行状態を共有する", async () => {
   let reject!: (reason: unknown) => void;
   const saving = new Promise<void>((_, no) => {
     reject = no;
   });
   function Observer() {
-    const { isRunning } = useAsyncTasks();
+    const { isRunning } = useAfterTasks();
     return <output>{isRunning ? "isRunning" : "idle"}</output>;
   }
   function Form() {
-    const { runAfterTasks } = useAsyncTasks(() => saving, { onError: vi.fn() });
+    const { runAfterTasks } = useAfterTasks(() => saving, { onError: vi.fn() });
     return <button onClick={runAfterTasks}>save</button>;
   }
   render(
-    <AsyncTasksProvider>
+    <AfterTasksProvider>
       <Observer />
       <Form />
-    </AsyncTasksProvider>,
+    </AfterTasksProvider>,
   );
   fireEvent.click(screen.getByText("save"));
   await waitFor(() =>
@@ -378,7 +383,7 @@ it("登録専用Hookにも別コンポーネントの実行状態を共有する
   await act(async () => reject(new Error("save failed")));
   expect(screen.getByRole("status").textContent).toBe("idle");
 });
-// 確認する状況: 同じuseAsyncTasksで入力タスクを登録し、完了前にrunAfterTasksを呼びます。
+// 確認する状況: 同じuseAfterTasksで入力タスクを登録し、完了前にrunAfterTasksを呼びます。
 // 期待する結果: 完了前は保存せず、onCommitによるstate更新後にnewを引数として保存を1回実行します。
 it("1つのHookから登録と実行を行い更新後のstateを保存する", async () => {
   let resolve!: (value: string) => void;
@@ -388,7 +393,7 @@ it("1つのHookから登録と実行を行い更新後のstateを保存する", 
   const save = vi.fn();
   function Form() {
     const [value, setValue] = useState("old");
-    const { registerAsyncTask, runAfterTasks } = useAsyncTasks(
+    const { registerAsyncTask, runAfterTasks } = useAfterTasks(
       () => save(value),
       { onError: vi.fn() },
     );
@@ -404,9 +409,9 @@ it("1つのHookから登録と実行を行い更新後のstateを保存する", 
     );
   }
   render(
-    <AsyncTasksProvider>
+    <AfterTasksProvider>
       <Form />
-    </AsyncTasksProvider>,
+    </AfterTasksProvider>,
   );
   fireEvent.click(screen.getByText("save"));
   expect(save).not.toHaveBeenCalled();
@@ -432,7 +437,7 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
 
       function Form() {
         const [value, setValue] = useState("old");
-        const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
+        const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(
           () => {
             events.push("save");
             save(value);
@@ -479,9 +484,9 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
       }
       render(
         <StrictMode>
-          <AsyncTasksProvider>
+          <AfterTasksProvider>
             <Form />
-          </AsyncTasksProvider>
+          </AfterTasksProvider>
         </StrictMode>,
       );
       const input = screen.getByLabelText("確定前の入力");
@@ -532,7 +537,7 @@ describe("key省略の自動UUID登録と全件待機", () => {
     const second = deferred<string>();
     const commitFirst = vi.fn();
     const commitSecond = vi.fn();
-    const store = createTaskStore();
+    const store = createAfterTasksStore();
     const firstHandle = store.registerAsyncTask(() => first.promise, {
       onCommit: commitFirst,
     });
@@ -574,7 +579,7 @@ describe("key省略の自動UUID登録と全件待機", () => {
       promise: Promise<string>;
       onCommit: (value: string) => void;
     }) {
-      const { registerAsyncTask } = useAsyncTasks();
+      const { registerAsyncTask } = useAfterTasks();
       return (
         <input
           aria-label={label}
@@ -586,7 +591,7 @@ describe("key省略の自動UUID登録と全件待機", () => {
     }
     function Form() {
       const [values, setValues] = useState({ a: "", b: "", c: "" });
-      const { runAfterTasks } = useAsyncTasks(() => save(values), { onError });
+      const { runAfterTasks } = useAfterTasks(() => save(values), { onError });
       return (
         <>
           <Field
@@ -617,9 +622,9 @@ describe("key省略の自動UUID登録と全件待機", () => {
     }
     render(
       <StrictMode>
-        <AsyncTasksProvider>
+        <AfterTasksProvider>
           <Form />
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       </StrictMode>,
     );
     fireEvent.blur(screen.getByLabelText("項目A"));
@@ -653,7 +658,7 @@ describe("登録タスクの実行状態hasPendingTasks", () => {
     async (status) => {
       vi.useFakeTimers();
       const task = deferred<string>();
-      const store = createTaskStore();
+      const store = createAfterTasksStore();
       const handle = store.registerAsyncTask(() => task.promise, {
         blocking: false,
         timeoutMs: status === "timedOut" ? 5 : null,
@@ -678,11 +683,11 @@ describe("登録タスクの実行状態hasPendingTasks", () => {
     const saving = deferred<void>();
     const save = vi.fn(() => saving.promise);
     function Observer() {
-      const { hasPendingTasks, isRunning } = useAsyncTasks();
+      const { hasPendingTasks, isRunning } = useAfterTasks();
       return <output>{`${hasPendingTasks}/${isRunning}`}</output>;
     }
     function Form() {
-      const { registerAsyncTask, runAfterTasks } = useAsyncTasks(save, {
+      const { registerAsyncTask, runAfterTasks } = useAfterTasks(save, {
         onError: vi.fn(),
       });
       return (
@@ -700,10 +705,10 @@ describe("登録タスクの実行状態hasPendingTasks", () => {
     }
     render(
       <StrictMode>
-        <AsyncTasksProvider>
+        <AfterTasksProvider>
           <Observer />
           <Form />
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       </StrictMode>,
     );
     const state = () => screen.getByRole("status").textContent;
@@ -729,11 +734,11 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
     const saving = deferred<void>();
     const onError = vi.fn();
     const action = vi
-      .fn<(context: ActionContext) => Promise<void>>()
+      .fn<(context: AfterTasksContext) => Promise<void>>()
       .mockImplementationOnce(() => saving.promise)
       .mockResolvedValue(undefined);
     function Form() {
-      const { runAfterTasks, isRunning } = useAsyncTasks(action, {
+      const { runAfterTasks, isRunning } = useAfterTasks(action, {
         onError,
         actionTimeoutMs: 10,
       });
@@ -745,9 +750,9 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
       );
     }
     render(
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form />
-      </AsyncTasksProvider>,
+      </AfterTasksProvider>,
     );
     fireEvent.click(screen.getByText("保存"));
     await flush();
@@ -772,21 +777,21 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
   it("保存開始後のunmountでも元の処理終了時に共有isRunningを解除する", async () => {
     const saving = deferred<void>();
     const onError = vi.fn();
-    const action = vi.fn((_context: ActionContext) => saving.promise);
+    const action = vi.fn((_context: AfterTasksContext) => saving.promise);
     function Observer() {
-      const { isRunning } = useAsyncTasks();
+      const { isRunning } = useAfterTasks();
       return <output>{isRunning ? "isRunning" : "idle"}</output>;
     }
     function Form() {
-      const { runAfterTasks } = useAsyncTasks(action, { onError });
+      const { runAfterTasks } = useAfterTasks(action, { onError });
       return <button onClick={runAfterTasks}>保存</button>;
     }
     function Container({ show }: { show: boolean }) {
       return (
-        <AsyncTasksProvider>
+        <AfterTasksProvider>
           <Observer />
           {show && <Form />}
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       );
     }
     const view = render(<Container show />);
@@ -808,7 +813,7 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
     const handled = vi.fn();
     const onError = vi.fn();
     function Form() {
-      const { runAfterTasks, isRunning } = useAsyncTasks(
+      const { runAfterTasks, isRunning } = useAfterTasks(
         async () => {
           try {
             await api();
@@ -828,9 +833,9 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
       );
     }
     render(
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form />
-      </AsyncTasksProvider>,
+      </AfterTasksProvider>,
     );
     fireEvent.click(screen.getByText("保存"));
     await waitFor(() =>

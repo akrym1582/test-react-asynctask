@@ -9,9 +9,9 @@ import {
 } from "@testing-library/react";
 import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AsyncTasksProvider, useAsyncTasks } from "../src/AsyncTasks";
-import { TrackedInput } from "../src/TrackedInput";
-import { useTaskField } from "../src/useAsyncField";
+import { AfterTasksProvider, useAfterTasks } from "../src/AfterTasks";
+import { AfterTasksInput } from "../src/AfterTasksInput";
+import { useAfterTasksFieldState } from "../src/useAfterTasksField";
 import { deferred } from "./helpers";
 afterEach(() => {
   cleanup();
@@ -26,13 +26,13 @@ describe("入力UIの確定・エラー表示・破棄", () => {
     onSave: (v: string) => void;
   }) {
     const [value, setValue] = useState("");
-    const field = useTaskField("x");
-    const { runAfterTasks, isRunning } = useAsyncTasks(() => onSave(value), {
+    const field = useAfterTasksFieldState("x");
+    const { runAfterTasks, isRunning } = useAfterTasks(() => onSave(value), {
       onError: () => {},
     });
     return (
       <>
-        <TrackedInput
+        <AfterTasksInput
           aria-label="value"
           taskKey="x"
           value={value}
@@ -47,16 +47,16 @@ describe("入力UIの確定・エラー表示・破棄", () => {
       </>
     );
   }
-  // 確認する状況: TrackedInputを編集し、テスト側からblurを配送せずに保存を要求します。
+  // 確認する状況: AfterTasksInputを編集し、テスト側からblurを配送せずに保存を要求します。
   // 期待する結果: 共通処理が未確定入力を確定し、正規化完了後の値で保存を1回実行します。
   it("保存要求時に未確定の入力を確定して正規化後の値を保存する", async () => {
     const d = deferred<string>();
     const save = vi.fn();
     render(
       <StrictMode>
-        <AsyncTasksProvider>
+        <AfterTasksProvider>
           <Form normalize={() => d.promise} onSave={save} />
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       </StrictMode>,
     );
     fireEvent.change(screen.getByLabelText("value"), {
@@ -68,18 +68,18 @@ describe("入力UIの確定・エラー表示・破棄", () => {
       expect(save).toHaveBeenCalledExactlyOnceWith("normalized"),
     );
   });
-  // 確認する状況: TrackedInputの正規化処理を失敗させ、blurだけを発生させます。
-  // 期待する結果: runAfterTasksを呼ばなくてもuseTaskFieldがerrorを通知し、画面へ表示できます。
+  // 確認する状況: AfterTasksInputの正規化処理を失敗させ、blurだけを発生させます。
+  // 期待する結果: runAfterTasksを呼ばなくてもuseAfterTasksFieldStateがerrorを通知し、画面へ表示できます。
   it("入力失敗は保存ボタンを押す前に項目状態へ反映する", async () => {
     render(
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form
           normalize={async () => {
             throw Error("bad");
           }}
           onSave={vi.fn()}
         />
-      </AsyncTasksProvider>,
+      </AfterTasksProvider>,
     );
     const input = screen.getByLabelText("value");
     fireEvent.change(input, { target: { value: "bad" } });
@@ -95,15 +95,15 @@ describe("入力UIの確定・エラー表示・破棄", () => {
     const commit = vi.fn();
     const view = render(
       <StrictMode>
-        <AsyncTasksProvider>
-          <TrackedInput
+        <AfterTasksProvider>
+          <AfterTasksInput
             taskKey="x"
             value=""
             onChange={() => {}}
             normalize={() => d.promise}
             onCommit={commit}
           />
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       </StrictMode>,
     );
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });

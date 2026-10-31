@@ -39,3 +39,9 @@ APIがthrow/rejectした場合はonErrorへ通知し、action終了後にisRunni
 ## 状態名の統一
 
 保存要求の待機・実行中はisRunning、未完了の登録タスクありはhasPendingTasksへ統一しました。ソース・コメント・サンプル・テスト・READMEを更新し、旧プロパティが型として利用できないこともコピー検証で確認しました。
+
+## AfterTasksへの名称統一
+
+中心ファイル・Provider・HookをAfterTasks.tsx / AfterTasksProvider / useAfterTasksへ統一しました。公開型、内部の実行Hook、任意の入力Hook・入力UI・送信補助、対応するテストファイル、コピー配布検証、README、AGENTS.mdも同じ名称に更新しています。登録・実行・状態の操作名はregisterAsyncTask / runAfterTasks / isRunning / hasPendingTasksを維持します。
+
+名称統一後も全57件、lint・整形・型チェック・5構成コピー検証・本番ビルドが成功しました。旧Hook・Provider・型名が利用できないこともコピー検証で確認しています。

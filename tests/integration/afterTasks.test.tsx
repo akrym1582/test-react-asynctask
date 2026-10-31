@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { StrictMode, useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AsyncTasksProvider, useAsyncTasks } from "../../src/AsyncTasks";
+import { AfterTasksProvider, useAfterTasks } from "../../src/AfterTasks";
 import { ExampleForm } from "../../src/ExampleForm";
 
 afterEach(cleanup);
@@ -33,7 +33,7 @@ function Harness({
   onError: (error: unknown) => void;
 }) {
   const [value, setValue] = useState("old");
-  const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
+  const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(
     () => action(value),
     { onError },
   );
@@ -56,9 +56,9 @@ function Harness({
 function setup(task: Promise<string>, action = vi.fn(), onError = vi.fn()) {
   const view = render(
     <StrictMode>
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Harness task={task} action={action} onError={onError} />
-      </AsyncTasksProvider>
+      </AfterTasksProvider>
     </StrictMode>,
   );
   return { ...view, action, onError };
@@ -171,10 +171,10 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
     const second = deferred<string>();
     const action = vi.fn();
     function Form() {
-      const store = useAsyncTasks();
+      const store = useAfterTasks();
       const [value, setValue] = useState("old");
       const added = useRef(false);
-      const { runAfterTasks, isRunning } = useAsyncTasks(
+      const { runAfterTasks, isRunning } = useAfterTasks(
         () => {
           action(value);
         },
@@ -210,9 +210,9 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
     }
     render(
       <StrictMode>
-        <AsyncTasksProvider>
+        <AfterTasksProvider>
           <Form />
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       </StrictMode>,
     );
     fireEvent.click(screen.getByText("execute"));
@@ -235,8 +235,8 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
     const first = vi.fn(() => saving.promise);
     const second = vi.fn();
     function Form() {
-      const a = useAsyncTasks(first, { onError: vi.fn() });
-      const b = useAsyncTasks(second, { onError: vi.fn() });
+      const a = useAfterTasks(first, { onError: vi.fn() });
+      const b = useAfterTasks(second, { onError: vi.fn() });
       return (
         <button
           onClick={() => {
@@ -249,9 +249,9 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
       );
     }
     render(
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form />
-      </AsyncTasksProvider>,
+      </AfterTasksProvider>,
     );
     fireEvent.click(screen.getByText("both"));
     await waitFor(() => expect(first).toHaveBeenCalledTimes(1));
@@ -266,7 +266,7 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
     const onError = vi.fn();
     const error = new Error("before");
     function Form() {
-      const { runAfterTasks, isRunning } = useAsyncTasks(action, {
+      const { runAfterTasks, isRunning } = useAfterTasks(action, {
         onError,
         beforeWait: () => {
           throw error;
@@ -279,9 +279,9 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
       );
     }
     render(
-      <AsyncTasksProvider>
+      <AfterTasksProvider>
         <Form />
-      </AsyncTasksProvider>,
+      </AfterTasksProvider>,
     );
     fireEvent.click(screen.getByText("execute"));
     await waitFor(() => expect(onError).toHaveBeenCalledExactlyOnceWith(error));
@@ -299,20 +299,20 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
     const second = vi.fn();
     render(
       <>
-        <AsyncTasksProvider>
+        <AfterTasksProvider>
           <Harness
             task={neverUntilReleased.promise}
             action={first}
             onError={vi.fn()}
           />
-        </AsyncTasksProvider>
-        <AsyncTasksProvider>
+        </AfterTasksProvider>
+        <AfterTasksProvider>
           <Harness
             task={Promise.resolve("second")}
             action={second}
             onError={vi.fn()}
           />
-        </AsyncTasksProvider>
+        </AfterTasksProvider>
       </>,
     );
     fireEvent.click(screen.getAllByText("blur")[0]!);

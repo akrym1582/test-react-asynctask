@@ -1,6 +1,6 @@
 /**
  * 入力の確定と状態表示を行う任意のHook群です。
- * AsyncTasks.tsx・useLatestCommitted.tsとこのファイルをコピーすると、通常のinputで利用できます。
+ * AfterTasks.tsx・useLatestCommitted.tsとこのファイルをコピーすると、通常のinputで利用できます。
  * Contextで直接タスクを登録するだけなら、このファイルは不要です。
  */
 import {
@@ -11,11 +11,11 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  useAsyncTasks,
-  type TaskStore,
-  type Timeout,
-  type TaskHandle,
-} from "./AsyncTasks";
+  useAfterTasks,
+  type AfterTasksStore,
+  type AfterTasksTimeout,
+  type AfterTasksHandle,
+} from "./AfterTasks";
 import { useLatestCommitted } from "./useLatestCommitted";
 
 // ブラウザーではDOM反映直後に設定を更新し、SSRではlayout effectの警告を避けます。
@@ -23,23 +23,23 @@ const useCommitEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 // SSR用のsnapshotは同じオブジェクトを返し、購読による不要な再レンダーを避けます。
 /** 任意の入力管理が公開する状態。dirtyは編集中の未確定値です。 */
-export type FieldSnapshot = Readonly<{
+export type AfterTasksFieldSnapshot = Readonly<{
   phase: "clean" | "dirty" | "pending" | "error" | "disposed";
   error?: unknown;
 }>;
-const cleanField: FieldSnapshot = Object.freeze({ phase: "clean" });
+const cleanField: AfterTasksFieldSnapshot = Object.freeze({ phase: "clean" });
 
 /**
  * blur失敗を保存ボタンが押される前から表示するための購読Hookです。
- * 入力そのものは登録しません。useAsyncField等が登録したtaskKeyを指定します。
+ * 入力そのものは登録しません。useAfterTasksField等が登録したtaskKeyを指定します。
  * @example
- * import { useTaskField } from "./useAsyncField";
- * const field = useTaskField("name");
+ * import { useAfterTasksFieldState } from "./useAfterTasksField";
+ * const field = useAfterTasksFieldState("name");
  * return field.phase === "error" ? <span role="alert">入力を確認してください</span> : null;
  */
-export function useTaskField(key: string): FieldSnapshot {
-  const store = useAsyncTasks();
-  const fields = createFieldStore(store);
+export function useAfterTasksFieldState(key: string): AfterTasksFieldSnapshot {
+  const store = useAfterTasks();
+  const fields = createAfterTasksFieldStore(store);
   return useSyncExternalStore(
     store.subscribe,
     () => fields.getFieldSnapshot(key),
@@ -48,7 +48,7 @@ export function useTaskField(key: string): FieldSnapshot {
 }
 
 /** 入力の値、値を確定する処理、その結果をstateへ反映する処理を指定します。 */
-export type AsyncFieldOptions = {
+export type AfterTasksFieldOptions = {
   /** 同じProvider内の入力ごとに異なる名前を指定します。 */
   taskKey: string;
   value: string;
@@ -60,7 +60,7 @@ export type AsyncFieldOptions = {
   /** 有効な最新の結果だけを同期的に反映します。通常はReactのsetterを渡します。 */
   onCommit: (value: string) => void;
   /** nullは無期限、省略時はProviderの入力タスク期限を使います。 */
-  timeoutMs?: Timeout;
+  timeoutMs?: AfterTasksTimeout;
   /** 同じvalueのままでも、この値を変更すると再確定します。 */
   resetKey?: unknown;
 };
@@ -71,8 +71,8 @@ export type AsyncFieldOptions = {
  * 初期valueは確定済みです。reset(value)やresetKeyの変更で再確定を要求できます。
  * HookはProviderの子で常に呼びます。入力の表示を切り替える場合は子部品をmount/unmountします。
  * @example
- * import { useAsyncField } from "./useAsyncField";
- * const nameField = useAsyncField({
+ * import { useAfterTasksField } from "./useAfterTasksField";
+ * const nameField = useAfterTasksField({
  *   taskKey: "name", value: name,
  *   normalize: (input, { signal }) => normalizeName(input, { signal }),
  *   onCommit: setName,
@@ -84,9 +84,9 @@ export type AsyncFieldOptions = {
  *   setName(value);          // 入力中の文字列を表示する
  * }} onBlur={nameField.commit} />;
  */
-export function useAsyncField(options: AsyncFieldOptions) {
-  const store = useAsyncTasks();
-  const fields = createFieldStore(store);
+export function useAfterTasksField(options: AfterTasksFieldOptions) {
+  const store = useAfterTasks();
+  const fields = createAfterTasksFieldStore(store);
   const { taskKey, value, resetKey, timeoutMs } = options;
   if (
     timeoutMs !== undefined &&
@@ -118,7 +118,7 @@ export function useAsyncField(options: AsyncFieldOptions) {
       field.current?.reset(value);
     }
   }, [resetKey, value]);
-  const snapshot = useTaskField(taskKey);
+  const snapshot = useAfterTasksFieldState(taskKey);
   const change = useCallback(
     (input: string) => field.current?.change(input),
     [],
@@ -134,7 +134,7 @@ type FieldConfig = {
     context: { signal: AbortSignal },
   ) => Promise<string> | string;
   onCommit: (value: string) => void;
-  timeoutMs?: Timeout;
+  timeoutMs?: AfterTasksTimeout;
 };
 type Field = {
   change: (value: string) => void;
@@ -142,16 +142,16 @@ type Field = {
   sync: (value: string) => void;
   commit: (retry?: boolean) => void;
   dispose: () => void;
-  snapshot: () => FieldSnapshot;
+  snapshot: () => AfterTasksFieldSnapshot;
 };
 
 type FieldStore = ReturnType<typeof makeFieldStore>;
-const stores = new WeakMap<TaskStore, FieldStore>();
+const stores = new WeakMap<AfterTasksStore, FieldStore>();
 /**
  * @internal 同じProvider内の入力Hookが共有する、任意の入力管理本体です。
  * storeの作成だけではcoreを変更しません。mountFieldはcommit後のEffectから呼びます。
  */
-export function createFieldStore(store: TaskStore): FieldStore {
+export function createAfterTasksFieldStore(store: AfterTasksStore): FieldStore {
   let manager = stores.get(store);
   if (!manager) {
     manager = makeFieldStore(store);
@@ -165,7 +165,7 @@ function synchronousCommit(result: unknown) {
     throw new TypeError("onCommitは同期関数で指定してください");
   }
 }
-function makeFieldStore(store: TaskStore) {
+function makeFieldStore(store: AfterTasksStore) {
   const fields = new Map<string, Field>();
   let detach: (() => void) | undefined;
   const participant = {
@@ -195,9 +195,9 @@ function makeFieldStore(store: TaskStore) {
     let draft = value;
     let generation = 0;
     let alive = true;
-    let handle: TaskHandle<string> | undefined;
-    let snapshot: FieldSnapshot = cleanField;
-    const set = (next: FieldSnapshot) => {
+    let handle: AfterTasksHandle<string> | undefined;
+    let snapshot: AfterTasksFieldSnapshot = cleanField;
+    const set = (next: AfterTasksFieldSnapshot) => {
       snapshot = next;
       store.notifyChange();
     };

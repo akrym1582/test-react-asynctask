@@ -1,14 +1,14 @@
 /**
  * Reactの非同期入力確定を、保存などのイベント処理より先に完了させる共通部品です。
- * Context・タスク登録・useAsyncTasksはこの1ファイルだけで利用できます。
+ * Context・タスク登録・useAfterTasksはこの1ファイルだけで利用できます。
  * 任意の入力Hook・UI・最新値getter・送信補助は別ファイルです。このファイルからは参照しません。
  * React以外の実行時依存はありません。
  *
  * 基本の流れ:
- * 1. useAsyncField（またはTrackedInput）が編集をdirty（未確定）として記録する。
+ * 1. useAfterTasksField（またはAfterTasksInput）が編集をdirty（未確定）として記録する。
  * 2. blurまたはrunAfterTasksでnormalizeを開始する。
  * 3. 最新の編集の結果だけをonCommitでReactのstateへ反映する。
- * 4. useAsyncTasksが再レンダーを経由し、新しいstateを参照するactionを呼ぶ。
+ * 4. useAfterTasksが再レンダーを経由し、新しいstateを参照するactionを呼ぶ。
  *
  * 注意: 非同期処理の中で直接呼ばれたsetStateは取り消せません。
  * 競合防止が必要な入力は normalize/onCommit 形式を使ってください。
@@ -28,19 +28,19 @@ import {
 const useCommitEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 /** ミリ秒。nullは期限なし。0/負数/NaN/Infinityは指定できません。 */
-export type Timeout = number | null;
-export type ErrorKind =
+export type AfterTasksTimeout = number | null;
+export type AfterTasksErrorKind =
   "task" | "validation" | "timeout" | "cancelled" | "action";
 /**
  * 共通処理のエラー。kindで種類を、detailsで項目や要求を特定できます。
  * @example
- * if (error instanceof AsyncTaskError && error.kind === "timeout") {
+ * if (error instanceof AfterTasksError && error.kind === "timeout") {
  *   console.log(error.details.taskKey, "の確定に時間がかかっています");
  * }
  */
-export class AsyncTaskError extends Error {
+export class AfterTasksError extends Error {
   constructor(
-    public kind: ErrorKind,
+    public kind: AfterTasksErrorKind,
     message: string,
     public details: {
       taskKey?: string | symbol;
@@ -49,10 +49,10 @@ export class AsyncTaskError extends Error {
     } = {},
   ) {
     super(message, { cause: details.cause });
-    this.name = "AsyncTaskError";
+    this.name = "AfterTasksError";
   }
 }
-export type TaskStatus =
+export type AfterTasksStatus =
   | "pending"
   | "fulfilled"
   | "rejected"
@@ -60,17 +60,20 @@ export type TaskStatus =
   | "cancelled"
   | "superseded";
 /** resultはrejectしない判別可能unionです。待たずに登録しても未処理rejectionを作りません。 */
-export type TaskResult<T> =
+export type AfterTasksResult<T> =
   | { status: "fulfilled"; value: T }
-  | { status: Exclude<TaskStatus, "pending" | "fulfilled">; error?: unknown };
-export type TaskHandle<T> = {
-  result: Promise<TaskResult<T>>;
+  | {
+      status: Exclude<AfterTasksStatus, "pending" | "fulfilled">;
+      error?: unknown;
+    };
+export type AfterTasksHandle<T> = {
+  result: Promise<AfterTasksResult<T>>;
   signal: AbortSignal;
-  getStatus: () => TaskStatus;
+  getStatus: () => AfterTasksStatus;
   cancel: () => void;
 };
 /** blocking=falseは保存に無関係な背景処理用。送信データを変更する処理には使わないでください。 */
-export type TaskOptions<T = unknown> = {
+export type AfterTasksOptions<T = unknown> = {
   /**
    * 省略時は自動生成UUIDで独立登録します。keyなしのタスクはすべて待機対象となります。
    * 同じ入力の古い結果を置き換えたい場合だけ、固定の文字列またはsymbolを指定します。
@@ -80,60 +83,63 @@ export type TaskOptions<T = unknown> = {
   /** 省略時true。falseは保存に無関係な背景処理用で、完了待機・保存阻止の対象から外します。 */
   blocking?: boolean;
   /** このタスクの期限（ミリ秒）。省略時はProviderのtaskTimeoutMs、nullなら無期限です。 */
-  timeoutMs?: Timeout;
+  timeoutMs?: AfterTasksTimeout;
   /** 最新かつ有効な処理に限り同期実行。非同期関数は禁止。 */
   onCommit?: (value: T) => void;
 };
 /** Provider初期設定。入力・総待機・保存の期限はすべて省略時null（無期限）です。 */
-export type TasksConfig = {
+export type AfterTasksConfig = {
   /** タスク1件の既定期限。省略時null（無期限）。登録時のtimeoutMsで上書きできます。 */
-  taskTimeoutMs?: Timeout;
+  taskTimeoutMs?: AfterTasksTimeout;
   /** 入力確定を待つ総期限の既定値。省略時null（無期限）。Hook側で上書きできます。 */
-  waitTimeoutMs?: Timeout;
+  waitTimeoutMs?: AfterTasksTimeout;
   /** 保存処理の既定期限。省略時null（無期限）。Hook側で上書きできます。 */
-  actionTimeoutMs?: Timeout;
+  actionTimeoutMs?: AfterTasksTimeout;
   /** タスクが失敗・期限切れになった時点の同期通知。保存要求がなくても呼ばれます。 */
-  onTaskError?: (error: AsyncTaskError) => void;
+  onTaskError?: (error: AfterTasksError) => void;
 };
-export type ActionPhase =
+export type AfterTasksPhase =
   "idle" | "preparing" | "waiting" | "ready" | "executing";
-export type ActionContext = {
+export type AfterTasksContext = {
   /** 保存期限切れ・Scope破棄等の取消要求。fetch等へ渡します。サーバーの処理停止は保証しません。 */
   signal: AbortSignal;
   /** 1回の保存要求を識別するID。ログ記録・必要に応じたAPI側の重複排除に利用します。 */
   requestId: string;
 };
 /** 同じProvider内のすべての利用箇所が購読する、読み取り専用の実行状態です。 */
-export type AsyncTasksSnapshot = Readonly<{
+export type AfterTasksSnapshot = Readonly<{
   /** 保存要求を受け付けてから、入力待機・保存処理が終了するまでtrue。入力タスク単独の実行は含みません。 */
   isRunning: boolean;
   /** 未完了の登録タスクが1件以上あればtrue。背景処理も含み、保存actionやdirty入力だけの状態は含みません。 */
   hasPendingTasks: boolean;
   /** idle=要求なし、preparing=準備中、waiting=入力待機、ready=再レンダー待ち、executing=保存中。 */
-  phase: ActionPhase;
+  phase: AfterTasksPhase;
   /** 現在の保存要求のID。入力タスクのUUIDとは別で、要求がなければnull。 */
   requestId: string | null;
 }>;
-const idleAction: AsyncTasksSnapshot = Object.freeze({
+const idleAction: AfterTasksSnapshot = Object.freeze({
   isRunning: false,
   hasPendingTasks: false,
-  phase: "idle" as ActionPhase,
+  phase: "idle" as AfterTasksPhase,
   requestId: null as string | null,
 });
-function duration(value: Timeout | undefined, fallback: Timeout): Timeout {
+function duration(
+  value: AfterTasksTimeout | undefined,
+  fallback: AfterTasksTimeout,
+): AfterTasksTimeout {
   const result = value === undefined ? fallback : value;
   if (result !== null && (!Number.isFinite(result) || result <= 0))
     throw new RangeError("期限には正の有限値かnullを指定してください");
   return result;
 }
 function report(
-  handler: ((error: AsyncTaskError) => void) | undefined,
-  error: AsyncTaskError,
+  handler: ((error: AfterTasksError) => void) | undefined,
+  error: AfterTasksError,
 ) {
   try {
     handler?.(error);
   } catch (cause) {
-    console.error("AsyncTasks error handler failed", cause);
+    console.error("AfterTasks error handler failed", cause);
   }
 }
 function synchronous(result: unknown, label: string) {
@@ -150,7 +156,7 @@ function requestId() {
 }
 
 /** 任意機能をタスク待機へ接続するための内部契約です。通常の画面からは利用しません。 */
-export type TaskParticipant = {
+export type AfterTasksParticipant = {
   /** 待機開始時や再確認時に、まだ登録されていない確定処理を開始します。 */
   prepare: () => void;
   /** 待機が必要な未確定状態を持つ場合はtrueです。 */
@@ -167,27 +173,27 @@ type InternalTask = {
 type ActionOwner = {
   id: string;
   controller: AbortController;
-  phase: ActionPhase;
+  phase: AfterTasksPhase;
 };
 
 /**
  * Contextが内部で保持する管理オブジェクトを作ります。
- * 通常の画面では直接呼ばず、Provider + useAsyncTasksを使ってください。
+ * 通常の画面では直接呼ばず、Provider + useAfterTasksを使ってください。
  * Reactに依存しない状態管理部分なので、単体テストでは直接使えます。
  * @example
- * const store = createTaskStore({ taskTimeoutMs: 5000 });
+ * const store = createAfterTasksStore({ taskTimeoutMs: 5000 });
  * store.registerAsyncTask(() => loadSomething());
  * await store.wait(); // 成功時だけここに進む。Reactのcommitを待つ用途ではない。
  */
-export function createTaskStore(config: TasksConfig = {}) {
+export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   const defaults = {
     taskTimeoutMs: duration(config.taskTimeoutMs, null),
     waitTimeoutMs: duration(config.waitTimeoutMs, null),
     actionTimeoutMs: duration(config.actionTimeoutMs, null),
   };
   const tasks = new Map<string | symbol, InternalTask>();
-  const failures = new Map<string | symbol, AsyncTaskError>();
-  const participants = new Set<TaskParticipant>();
+  const failures = new Map<string | symbol, AfterTasksError>();
+  const participants = new Set<AfterTasksParticipant>();
   const listeners = new Set<() => void>();
   // タスクの件数だけでは「追加されてすぐ完了した処理」を検出できません。
   // 条件が変わるたびにrevisionを進め、Hook側で再レンダーの必要性を判定します。
@@ -241,24 +247,24 @@ export function createTaskStore(config: TasksConfig = {}) {
    */
   function registerAsyncTask<T>(
     factory: (context: { signal: AbortSignal }) => T | Promise<T>,
-    options: TaskOptions<T> = {},
-  ): TaskHandle<T> {
-    if (disposed) throw new Error("AsyncTasks scope is disposed");
+    options: AfterTasksOptions<T> = {},
+  ): AfterTasksHandle<T> {
+    if (disposed) throw new Error("AfterTasks scope is disposed");
     const timeout = duration(options.timeoutMs, defaults.taskTimeoutMs);
     // 通常は登録ごとにIDを作り、別の登録を置き換えず全件を待機します。
     // requestId()はcrypto.randomUUIDを使い、非対応環境では時刻と連番で一意にします。
     const key = options.key ?? requestId();
     tasks.get(key)?.cancel("superseded");
     const controller = new AbortController();
-    let status: TaskStatus = "pending";
+    let status: AfterTasksStatus = "pending";
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let resolve!: (result: TaskResult<T>) => void;
-    const result = new Promise<TaskResult<T>>((done) => {
+    let resolve!: (result: AfterTasksResult<T>) => void;
+    const result = new Promise<AfterTasksResult<T>>((done) => {
       resolve = done;
     });
     const blocking = options.blocking !== false;
     const finish = (
-      next: Exclude<TaskStatus, "pending">,
+      next: Exclude<AfterTasksStatus, "pending">,
       value?: T,
       cause?: unknown,
     ) => {
@@ -277,9 +283,9 @@ export function createTaskStore(config: TasksConfig = {}) {
       status = next;
       clearTimeout(timer);
       if (tasks.get(key) === internal) tasks.delete(key);
-      let error: AsyncTaskError | undefined;
+      let error: AfterTasksError | undefined;
       if (next === "timedOut" || next === "rejected") {
-        error = new AsyncTaskError(
+        error = new AfterTasksError(
           next === "timedOut" ? "timeout" : "validation",
           next === "timedOut"
             ? "入力処理がタイムアウトしました"
@@ -325,10 +331,10 @@ export function createTaskStore(config: TasksConfig = {}) {
   /**
    * dirty入力を確定し、blockingタスクがなくなるまで購読して待ちます。
    * Promise.allを一度だけ呼ぶ方法と違い、待機途中の追加・削除にも追従します。
-   * この関数だけではReactのstate反映待ちは行いません。画面ではuseAsyncTasksを使用します。
+   * この関数だけではReactのstate反映待ちは行いません。画面ではuseAfterTasksを使用します。
    */
   async function wait(
-    options: { signal?: AbortSignal; timeoutMs?: Timeout } = {},
+    options: { signal?: AbortSignal; timeoutMs?: AfterTasksTimeout } = {},
   ) {
     const timeout = duration(options.timeoutMs, defaults.waitTimeoutMs);
     await new Promise<void>((resolve, reject) => {
@@ -344,7 +350,7 @@ export function createTaskStore(config: TasksConfig = {}) {
         else resolve();
       };
       const abort = () =>
-        finish(new AsyncTaskError("cancelled", "待機を取り消しました"));
+        finish(new AfterTasksError("cancelled", "待機を取り消しました"));
       let checking = false;
       const check = () => {
         if (finished || checking) return;
@@ -371,7 +377,7 @@ export function createTaskStore(config: TasksConfig = {}) {
         timer = setTimeout(
           () =>
             finish(
-              new AsyncTaskError(
+              new AfterTasksError(
                 "timeout",
                 "入力の確定待機がタイムアウトしました",
               ),
@@ -407,8 +413,8 @@ export function createTaskStore(config: TasksConfig = {}) {
      * @internal 任意機能を待機・再確定・Scope破棄へ接続します。
      * coreは入力UIの具体的な状態や世代管理を持たず、この契約だけを呼びます。
      */
-    registerParticipant(participant: TaskParticipant) {
-      if (disposed) throw new Error("AsyncTasks scope is disposed");
+    registerParticipant(participant: AfterTasksParticipant) {
+      if (disposed) throw new Error("AfterTasks scope is disposed");
       participants.add(participant);
       changed();
       let active = true;
@@ -453,7 +459,7 @@ export function createTaskStore(config: TasksConfig = {}) {
       publishAction();
       return owner;
     },
-    setPhase(current: ActionOwner, phase: ActionPhase) {
+    setPhase(current: ActionOwner, phase: AfterTasksPhase) {
       if (owner === current) {
         current.phase = phase;
         publishAction();
@@ -486,9 +492,9 @@ export function createTaskStore(config: TasksConfig = {}) {
   };
   return store;
 }
-export type TaskStore = ReturnType<typeof createTaskStore>;
-/** actionを指定したuseAsyncTasksから取得できる実行操作と状態です。 */
-export type TaskActionResult = AsyncTasksSnapshot & {
+export type AfterTasksStore = ReturnType<typeof createAfterTasksStore>;
+/** actionを指定したuseAfterTasksから取得できる実行操作と状態です。 */
+export type AfterTasksExecution = AfterTasksSnapshot & {
   /**
    * イベント用の実行予約関数。自動blurとbeforeWaitを行い、タスク完了・state反映後にactionを呼びます。
    * 同じProviderの実行中の重複要求は受け付けません。戻り値はvoidで、awaitでは完了を待てません。
@@ -496,23 +502,27 @@ export type TaskActionResult = AsyncTasksSnapshot & {
    */
   runAfterTasks: () => void;
 };
-const Context = createContext<TaskStore | null>(null);
+const AfterTasksStoreContext = createContext<AfterTasksStore | null>(null);
 /**
  * フォームごとに置く管理範囲です。この範囲内の入力を待ち、保存操作を1つに制限します。
  * configはScope作成時に固定します。変更にはProviderをkeyで再作成してください。
  * @example
  * // 期限を省略すると、入力・確定待機・保存をすべて無期限で待ちます。
- * <AsyncTasksProvider>
+ * <AfterTasksProvider>
  *   <EditForm />
- * </AsyncTasksProvider>
+ * </AfterTasksProvider>
  */
-export function AsyncTasksProvider({
+export function AfterTasksProvider({
   children,
   ...config
-}: TasksConfig & { children: ReactNode }) {
-  const [store] = useState(() => createTaskStore(config));
+}: AfterTasksConfig & { children: ReactNode }) {
+  const [store] = useState(() => createAfterTasksStore(config));
   useCommitEffect(() => store.attach(), [store]);
-  return <Context.Provider value={store}>{children}</Context.Provider>;
+  return (
+    <AfterTasksStoreContext.Provider value={store}>
+      {children}
+    </AfterTasksStoreContext.Provider>
+  );
 }
 /**
  * タスク登録・待機後の実行・共有状態を取得する公開Hookです。
@@ -523,17 +533,17 @@ export function AsyncTasksProvider({
  * runAfterTasksはvoid関数です。保存後の処理はaction内へ書きます。
  * Promiseの全自動検出は行いません。
  * @example
- * const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
+ * const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(
  *   context => save(values, context), { onError: console.error },
  * );
  * return <button onClick={runAfterTasks} disabled={isRunning}>保存</button>;
  * @example
- * const tasks = useAsyncTasks();
+ * const tasks = useAfterTasks();
  * tasks.registerAsyncTask(({ signal }) => fetch("/api/suggestions", { signal }), {
  *   blocking: false, // 保存対象のデータとは無関係な背景処理
  * });
  */
-export function useAsyncTasks(): TaskStore;
+export function useAfterTasks(): AfterTasksStore;
 /**
  * @param action 入力タスク完了と再レンダー後に実行する保存処理。最新レンダーのstateを参照します。
  * 引数context.signalは取消要求、context.requestIdは保存要求の識別子です。通信層まで渡してください。
@@ -541,18 +551,18 @@ export function useAsyncTasks(): TaskStore;
  * @param options 自動フォーカス解除・準備処理・期限・エラー通知の設定。onErrorは必須です。
  * @returns 登録操作、runAfterTasks、共有状態。runAfterTasksはvoidを返します。
  */
-export function useAsyncTasks(
-  action: (context: ActionContext) => void | Promise<void>,
-  options: AsyncTasksOptions,
-): TaskStore & TaskActionResult;
-export function useAsyncTasks(
-  action?: (context: ActionContext) => void | Promise<void>,
-  options?: AsyncTasksOptions,
+export function useAfterTasks(
+  action: (context: AfterTasksContext) => void | Promise<void>,
+  options: AfterTasksRunOptions,
+): AfterTasksStore & AfterTasksExecution;
+export function useAfterTasks(
+  action?: (context: AfterTasksContext) => void | Promise<void>,
+  options?: AfterTasksRunOptions,
 ) {
-  const store = useContext(Context);
-  if (!store) throw new Error("AsyncTasksProviderが必要です");
+  const store = useContext(AfterTasksStoreContext);
+  if (!store) throw new Error("AfterTasksProviderが必要です");
   // 引数の有無でHookを条件呼び出ししません。登録だけの利用でも同じ順序で呼びます。
-  const execution = useTaskAction(
+  const execution = useAfterTasksExecution(
     store,
     action,
     options ?? registrationOptions,
@@ -560,7 +570,7 @@ export function useAsyncTasks(
   // 入力Hookの購読・mountを安定させるため、登録だけの利用では同じstoreを返します。
   return action ? { ...store, ...execution } : store;
 }
-const registrationOptions: AsyncTasksOptions = { onError: console.error };
+const registrationOptions: AfterTasksRunOptions = { onError: console.error };
 // coreのエラー通知・準備オプションを、破棄されたレンダーから読まないための内部getterです。
 // 公開の任意Hook(useLatestCommitted.ts)をimportせず、中心ファイル単独で動作させます。
 function useCommittedOptions<T>(value: T): () => T {
@@ -570,8 +580,8 @@ function useCommittedOptions<T>(value: T): () => T {
   });
   return useCallback(() => ref.current, []);
 }
-/** useAsyncTasksの第2引数。保存要求ごとの準備・期限・エラー通知を設定します。 */
-export type AsyncTasksOptions = {
+/** useAfterTasksの第2引数。保存要求ごとの準備・期限・エラー通知を設定します。 */
+export type AfterTasksRunOptions = {
   /**
    * 必須。自動blur・beforeWait・入力待機・actionの失敗を通知します。
    * エラー表示などを同期的に行ってください。入力処理の失敗はAggregateErrorになる場合があります。
@@ -585,7 +595,7 @@ export type AsyncTasksOptions = {
    * 対象はdocument.activeElementで、ProviderのDOM範囲には限定されません。
    * 別フォーム・ダイアログの入力や保存ボタンからもフォーカスが外れる場合があります。
    * フォーカス維持や対象限定が必要ならfalseにし、必要に応じbeforeWaitで対象だけblurします。
-   * useAsyncFieldはfalseでも未確定入力を自動確定します。SSRではDOM操作を行いません。
+   * useAfterTasksFieldはfalseでも未確定入力を自動確定します。SSRではDOM操作を行いません。
    * iframe・Shadow DOM内部を再帰的に探索する機能ではありません。
    */
   blurActiveElement?: boolean;
@@ -601,7 +611,7 @@ export type AsyncTasksOptions = {
    * 超過時は保存を開始せず入力処理へ取消を要求し、isRunningを解除します。
    * JavaScriptの同期処理を途中で強制終了することはできません。
    */
-  waitTimeoutMs?: Timeout;
+  waitTimeoutMs?: AfterTasksTimeout;
   /**
    * action開始から保存結果を待つ期限（ミリ秒）。入力待機の時間は含みません。
    * 省略時はProviderのactionTimeoutMs（既定null・無期限）、nullなら無期限です。
@@ -609,7 +619,7 @@ export type AsyncTasksOptions = {
    * 元のactionが実際に完了・失敗するまでisRunningを維持します。signalを無視する処理は強制停止できません。
    * 保存結果の確認や再送判断はAPI呼び出し側で行ってください。共通側の自動再送はありません。
    */
-  actionTimeoutMs?: Timeout;
+  actionTimeoutMs?: AfterTasksTimeout;
 };
 /**
  * タスク完了と再レンダーを経由してactionを実行します。
@@ -617,17 +627,17 @@ export type AsyncTasksOptions = {
  * isRunningは待機/保存中、hasPendingTasksは未完了の登録タスクがある状態です。保存失敗はonErrorへ通知します。
  * action内のawait後に同じclosureのstateが自動更新されるわけではありません。
  * @example
- * const { runAfterTasks, isRunning } = useAsyncTasks(async ({ signal, requestId }) => {
+ * const { runAfterTasks, isRunning } = useAfterTasks(async ({ signal, requestId }) => {
  *   await save(values, { signal, requestId });
  *   navigate("/complete"); // 保存成功後の処理もこの中へ
  * }, { onError: error => setError(String(error)) });
  * return <button onClick={runAfterTasks} disabled={isRunning}>保存</button>;
  */
-function useTaskAction(
-  store: TaskStore,
-  action: ((context: ActionContext) => void | Promise<void>) | undefined,
-  options: AsyncTasksOptions,
-): TaskActionResult {
+function useAfterTasksExecution(
+  store: AfterTasksStore,
+  action: ((context: AfterTasksContext) => void | Promise<void>) | undefined,
+  options: AfterTasksRunOptions,
+): AfterTasksExecution {
   const snapshot = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -724,7 +734,7 @@ function useTaskAction(
         if (!current.active || current.started) return;
         fail(
           current,
-          new AsyncTaskError(
+          new AfterTasksError(
             "timeout",
             "入力の確定待機がタイムアウトしました",
             { requestId: owner.id },
@@ -784,7 +794,7 @@ function useTaskAction(
         current.owner.controller.abort();
         fail(
           current,
-          new AsyncTaskError("timeout", "保存処理がタイムアウトしました", {
+          new AfterTasksError("timeout", "保存処理がタイムアウトしました", {
             requestId: current.owner.id,
           }),
         );

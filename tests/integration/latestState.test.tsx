@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { AsyncTasksProvider, useAsyncTasks } from "../../src/AsyncTasks";
+import { AfterTasksProvider, useAfterTasks } from "../../src/AfterTasks";
 import { useLatestCommitted } from "../../src/useLatestCommitted";
 import { deferred, flush } from "../helpers";
 afterEach(cleanup);
@@ -21,7 +21,7 @@ it("保存開始時のstateとawait後の最新値を区別する", async () => 
   function Form() {
     const [value, setValue] = useState("old");
     const get = useLatestCommitted(value);
-    const { runAfterTasks } = useAsyncTasks(
+    const { runAfterTasks } = useAfterTasks(
       async () => {
         await gate.promise;
         result(value, get());
@@ -36,9 +36,9 @@ it("保存開始時のstateとawait後の最新値を区別する", async () => 
     );
   }
   render(
-    <AsyncTasksProvider>
+    <AfterTasksProvider>
       <Form />
-    </AsyncTasksProvider>,
+    </AfterTasksProvider>,
   );
   fireEvent.click(screen.getByText("runAfterTasks"));
   await flush();

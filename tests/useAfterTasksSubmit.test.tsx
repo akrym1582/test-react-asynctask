@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { useAsyncSubmit } from "../src/useAsyncSubmit";
+import { useAfterTasksSubmit } from "../src/useAfterTasksSubmit";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -12,7 +12,7 @@ it("IMEの変換確定Enterでは保存せず別のEnterや明示クリックを
   const runAfterTasks = vi.fn();
   function Form() {
     return (
-      <form {...useAsyncSubmit(runAfterTasks)}>
+      <form {...useAfterTasksSubmit(runAfterTasks)}>
         <input />
         <button>save</button>
       </form>

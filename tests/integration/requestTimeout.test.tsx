@@ -8,14 +8,14 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { AsyncTasksProvider, useAsyncTasks } from "../../src/AsyncTasks";
-import { TrackedInput } from "../../src/TrackedInput";
+import { AfterTasksProvider, useAfterTasks } from "../../src/AfterTasks";
+import { AfterTasksInput } from "../../src/AfterTasksInput";
 import { deferred } from "../helpers";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-// 確認する状況: TrackedInputの確定が終わらないまま総待機期限10msを超え、その後に元処理を成功させます。
+// 確認する状況: AfterTasksInputの確定が終わらないまま総待機期限10msを超え、その後に元処理を成功させます。
 // 期待する結果: エラーを1回通知してisRunningを解除します。遅い結果でも保存は始まらず、表示中の入力値も上書きしません。
 it("入力の総待機期限で要求を解除し遅い結果から保存を開始しない", async () => {
   vi.useFakeTimers();
@@ -24,7 +24,7 @@ it("入力の総待機期限で要求を解除し遅い結果から保存を開�
   const error = vi.fn();
   function Form() {
     const [value, setValue] = useState("");
-    const { runAfterTasks, isRunning } = useAsyncTasks(
+    const { runAfterTasks, isRunning } = useAfterTasks(
       () => {
         save(value);
       },
@@ -32,7 +32,7 @@ it("入力の総待機期限で要求を解除し遅い結果から保存を開�
     );
     return (
       <>
-        <TrackedInput
+        <AfterTasksInput
           taskKey="x"
           value={value}
           onChange={(e) => setValue(e.currentTarget.value)}
@@ -45,9 +45,9 @@ it("入力の総待機期限で要求を解除し遅い結果から保存を開�
     );
   }
   render(
-    <AsyncTasksProvider taskTimeoutMs={null}>
+    <AfterTasksProvider taskTimeoutMs={null}>
       <Form />
-    </AsyncTasksProvider>,
+    </AfterTasksProvider>,
   );
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });
   fireEvent.click(screen.getByText("runAfterTasks"));

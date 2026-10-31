@@ -148,7 +148,7 @@ vite.config.ts.timestamp-*
 # Turbo Repo
 .turbo
 
-# AsyncTasks verification artifacts
+# AfterTasks verification artifacts
 /test-results/
 /playwright-report/
 /.copy-check-*/

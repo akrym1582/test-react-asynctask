@@ -1,31 +1,34 @@
-# React AsyncTasks
+# React AfterTasks
 
 非同期blurで入力を確定してから、最新のレンダーのstateで保存するための共通処理です。
-**中心の`src/AsyncTasks.tsx`だけで、Context・タスク登録・完了待機・保存を利用できます。** 入力HookやUI、form送信の補助は任意ファイルです。React以外の実行時依存はありません。
+**中心の`src/AfterTasks.tsx`だけで、Context・タスク登録・完了待機・保存を利用できます。** 入力HookやUI、form送信の補助は任意ファイルです。React以外の実行時依存はありません。
 
 ## 必要なファイルだけコピーする
 
-| 利用する機能                                           | コピーするファイル                                  |
-| ------------------------------------------------------ | --------------------------------------------------- |
-| タスク登録・待機後のイベント実行                       | `AsyncTasks.tsx`だけ                                |
-| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAsyncField.ts` |
-| 入力UIも共通化する                                     | 上記3ファイル + `TrackedInput.tsx`                  |
-| 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）         |
-| formのIME・Enter送信を補助する                         | 必要に応じて`useAsyncSubmit.ts`を追加               |
+| 利用する機能                                           | コピーするファイル                                       |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                     |
+| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAfterTasksField.ts` |
+| 入力UIも共通化する                                     | 上記3ファイル + `AfterTasksInput.tsx`                    |
+| 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）              |
+| formのIME・Enter送信を補助する                         | 必要に応じて`useAfterTasksSubmit.ts`を追加               |
 
 ```tsx
 // 必須の中心ファイル
-import { AsyncTasksProvider, useAsyncTasks } from "./AsyncTasks";
+import { AfterTasksProvider, useAfterTasks } from "./AfterTasks";
 // 以下は利用するものだけimportします。
-import { useAsyncField, useTaskField } from "./useAsyncField";
-import { TrackedInput } from "./TrackedInput";
-import { useAsyncSubmit } from "./useAsyncSubmit";
+import {
+  useAfterTasksField,
+  useAfterTasksFieldState,
+} from "./useAfterTasksField";
+import { AfterTasksInput } from "./AfterTasksInput";
+import { useAfterTasksSubmit } from "./useAfterTasksSubmit";
 import { useLatestCommitted } from "./useLatestCommitted";
 ```
 
-中心ファイルから任意ファイルをimport・再exportしません。中心側は任意機能の準備・待機判定・破棄を呼び出す汎用の接続だけを持ちます。入力の世代・dirty・エラー表示の管理本体はuseAsyncField.tsへ集約しています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
+中心ファイルから任意ファイルをimport・再exportしません。中心側は任意機能の準備・待機判定・破棄を呼び出す汎用の接続だけを持ちます。入力の世代・dirty・エラー表示の管理本体はuseAfterTasksField.tsへ集約しています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
 
-引数なしの`useAsyncTasks()`はタスク登録と共有状態の参照に使えます。保存処理と`onError`を渡すと、`runAfterTasks`も取得できます。保存処理はHookの引数として定義し、クリック時には`onClick={runAfterTasks}`で実行します。
+引数なしの`useAfterTasks()`はタスク登録と共有状態の参照に使えます。保存処理と`onError`を渡すと、`runAfterTasks`も取得できます。保存処理はHookの引数として定義し、クリック時には`onClick={runAfterTasks}`で実行します。
 
 `isRunning`は保存要求後の入力待機・保存中、`hasPendingTasks`は登録タスクの実行中を示します。保存失敗はonErrorへ通知し、処理終了時にisRunningを解除します。APIのエラー表示や再送判断は呼び出し側で扱います。
 
@@ -34,12 +37,12 @@ import { useLatestCommitted } from "./useLatestCommitted";
 入力タスク・総待機・保存の3種類は、**デフォルトで無期限**です。Providerには期限を指定せず使えます。
 
 ```tsx
-<AsyncTasksProvider>
+<AfterTasksProvider>
   <EditForm />
-</AsyncTasksProvider>
+</AfterTasksProvider>
 ```
 
-Providerの期限は省略時null（無期限）です。Hookやタスクの期限を省略（undefined）するとProviderの設定を継承し、nullを指定するとProviderが有限期限でも無期限に上書きします。`Infinity`や0は使いません。`useAsyncTasks`の`waitTimeoutMs`/`actionTimeoutMs`、`registerAsyncTask`/`useAsyncField`の`timeoutMs`で個別上書きできます。外部APIやサーバー自体の期限が延びるわけではありません。
+Providerの期限は省略時null（無期限）です。Hookやタスクの期限を省略（undefined）するとProviderの設定を継承し、nullを指定するとProviderが有限期限でも無期限に上書きします。`Infinity`や0は使いません。`useAfterTasks`の`waitTimeoutMs`/`actionTimeoutMs`、`registerAsyncTask`/`useAfterTasksField`の`timeoutMs`で個別上書きできます。外部APIやサーバー自体の期限が延びるわけではありません。
 
 未完了の処理がある間はisRunningが継続します。`null`は期限だけを無効化し、cancelやunmount時の後始末は無効化しません。
 
@@ -48,7 +51,7 @@ Providerの期限は省略時null（無期限）です。Hookやタスクの期�
 通常のinputのblurからタスクを登録できます。`src/PlainBlurExample.tsx`に、Providerとエラー表示を含めた例があります。HookはProviderの子コンポーネントで使います。
 
 ```tsx
-const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(async context => {
+const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async context => {
   await save({ name }, context);
 }, {
   blurActiveElement: true, // 省略時もtrue。onBlurからタスクを登録させる
@@ -71,18 +74,18 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(async cont
 
 ## 任意の入力Hookを使う
 
-`useAsyncField`を使えば、DOMは通常のinputや既存UIライブラリーの部品を使えます。`useTaskField`は同じファイルにある状態表示用Hookです。
+`useAfterTasksField`を使えば、DOMは通常のinputや既存UIライブラリーの部品を使えます。`useAfterTasksFieldState`は同じファイルにある状態表示用Hookです。
 
 ```tsx
-import { useAsyncField, useTaskField } from "./useAsyncField";
+import { useAfterTasksField, useAfterTasksFieldState } from "./useAfterTasksField";
 
 const [name, setName] = useState("");
-const nameField = useAsyncField({
+const nameField = useAfterTasksField({
   taskKey: "name", value: name,
   normalize: (input, { signal }) => normalizeName(input, { signal }),
   onCommit: setName,
 });
-const { runAfterTasks, isRunning } = useAsyncTasks(async context => {
+const { runAfterTasks, isRunning } = useAfterTasks(async context => {
   await save({ name }, context);
 }, { onError: error => console.error(error) });
 
@@ -97,16 +100,16 @@ const { runAfterTasks, isRunning } = useAsyncTasks(async context => {
 <button type="button" onClick={runAfterTasks} disabled={isRunning}>保存</button>
 ```
 
-runAfterTasks時にもdirty項目を確定するため、blurが発生しなくても保存前に確定できます。`change`はstateを変更しないのでsetterも呼んでください。`phase`/`error`で項目状態を参照でき、別コンポーネントからは`useTaskField("name")`でも購読できます。
+runAfterTasks時にもdirty項目を確定するため、blurが発生しなくても保存前に確定できます。`change`はstateを変更しないのでsetterも呼んでください。`phase`/`error`で項目状態を参照でき、別コンポーネントからは`useAfterTasksFieldState("name")`でも購読できます。
 
 初期valueは確定済みです。編集・外部value変更はdirtyになります。同じ値を再確定する場合は`reset(value)`または`resetKey`の変更を使います。入力を動的に取り外す場合は、Hookを呼ぶ子コンポーネントをunmountします。
 
 ## 任意の入力UIを使う
 
 ```tsx
-import { TrackedInput } from "./TrackedInput";
+import { AfterTasksInput } from "./AfterTasksInput";
 
-<TrackedInput
+<AfterTasksInput
   taskKey="name"
   value={name}
   onChange={(event) => setName(event.currentTarget.value)}
@@ -119,21 +122,21 @@ import { TrackedInput } from "./TrackedInput";
 
 ## API
 
-| API                                                  | import元           | 用途                                                          |
-| ---------------------------------------------------- | ------------------ | ------------------------------------------------------------- |
-| AsyncTasksProvider                                   | AsyncTasks         | フォーム単位の管理範囲・初期設定                              |
-| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks         | signalを準備してから処理を開始                                |
-| useAsyncTasks(action, options)                       | AsyncTasks         | runAfterTasks/isRunning/hasPendingTasks/phase/requestIdを取得 |
-| useLatestCommitted(value)                            | useLatestCommitted | 最新commit済み値を返す安定したgetter                          |
-| useAsyncField(options)                               | useAsyncField      | 入力確定・世代管理                                            |
-| useTaskField(key)                                    | useAsyncField      | 入力のclean/dirty/pending/error状態を購読                     |
-| TrackedInput                                         | TrackedInput       | 入力Hookを組み込んだUI                                        |
-| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit     | IME対応のformイベント群                                       |
+| API                                                  | import元            | 用途                                                          |
+| ---------------------------------------------------- | ------------------- | ------------------------------------------------------------- |
+| AfterTasksProvider                                   | AfterTasks          | フォーム単位の管理範囲・初期設定                              |
+| useAfterTasks().registerAsyncTask(factory, options?) | AfterTasks          | signalを準備してから処理を開始                                |
+| useAfterTasks(action, options)                       | AfterTasks          | runAfterTasks/isRunning/hasPendingTasks/phase/requestIdを取得 |
+| useLatestCommitted(value)                            | useLatestCommitted  | 最新commit済み値を返す安定したgetter                          |
+| useAfterTasksField(options)                          | useAfterTasksField  | 入力確定・世代管理                                            |
+| useAfterTasksFieldState(key)                         | useAfterTasksField  | 入力のclean/dirty/pending/error状態を購読                     |
+| AfterTasksInput                                      | AfterTasksInput     | 入力Hookを組み込んだUI                                        |
+| useAfterTasksSubmit(runAfterTasks)                   | useAfterTasksSubmit | IME対応のformイベント群                                       |
 
 タスク登録は`registerAsyncTask(factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
 
 ```tsx
-const tasks = useAsyncTasks();
+const tasks = useAfterTasks();
 const handle = tasks.registerAsyncTask(
   ({ signal }) => fetch("/api/name", { signal }),
   { timeoutMs: 5000 },
@@ -151,7 +154,7 @@ if (result.status === "fulfilled") console.log(result.value);
 
 Reactのイベント関数は、そのレンダー時点のstateを保持します。古いイベント関数の中でPromiseを待っても、その関数のstateが最新に変わるわけではありません。
 
-useAsyncTasksはタスク完了後にstateを更新し、対応する新しいレンダーのEffectからactionを呼びます。レンダー番号とタスクのrevisionを確認するため、待機完了とEffectの間にタスクが増えた場合も再確認します。flushSyncや固定時間のsleepで順番を推測しません。
+useAfterTasksはタスク完了後にstateを更新し、対応する新しいレンダーのEffectからactionを呼びます。レンダー番号とタスクのrevisionを確認するため、待機完了とEffectの間にタスクが増えた場合も再確認します。flushSyncや固定時間のsleepで順番を推測しません。
 
 ## サンプルと開発用ファイル
 
@@ -167,8 +170,8 @@ useAsyncTasksはタスク完了後にstateを更新し、対応する新しい�
 
 ## エラーのタイミング
 
-- `onTaskError`と`useTaskField`は、入力処理の失敗を即時に通知・表示するためのものです。
-- `useAsyncTasks`の`onError`は、runAfterTasksで要求した処理の失敗（beforeWait、入力待機、保存等）の通知です。
+- `onTaskError`と`useAfterTasksFieldState`は、入力処理の失敗を即時に通知・表示するためのものです。
+- `useAfterTasks`の`onError`は、runAfterTasksで要求した処理の失敗（beforeWait、入力待機、保存等）の通知です。
 - 入力のエラーは同じ項目の新しい確定が成功するまで保持します。他項目の成功では解除しません。
 - normalizeでcatchして成功扱いにすると保存を止められません。エラーはthrow/rejectしてください。
 - 動的に入力を削除すると、その所有者のpending/errorも解除します。同じkeyの別入力への遅延完了・cleanupは作用しません。
@@ -177,7 +180,7 @@ useAsyncTasksはタスク完了後にstateを更新し、対応する新しい�
 
 ## タイムアウトとAPIエラー
 
-入力タスク・総待機・保存の期限はすべて省略時null（無期限）です。Providerで設定し、registerAsyncTask/useAsyncFieldのtimeoutMs、useAsyncTasksのwaitTimeoutMs/actionTimeoutMsで上書きできます。0・負数・NaN・Infinityは設定エラーです。
+入力タスク・総待機・保存の期限はすべて省略時null（無期限）です。Providerで設定し、registerAsyncTask/useAfterTasksFieldのtimeoutMs、useAfterTasksのwaitTimeoutMs/actionTimeoutMsで上書きできます。0・負数・NaN・Infinityは設定エラーです。
 
 入力タスクや総待機が期限切れになった場合、onErrorへ通知して保存を開始しません。保存actionの期限切れではsignalで中断を要求してonErrorへtimeoutを通知し、元のactionが実際に終了するまでisRunningを維持します。中断要求は通信先の対応が必要です。
 
@@ -185,7 +188,7 @@ APIがthrow/rejectした場合、共通側はonErrorへ通知し、処理終了�
 
 ```tsx
 const { registerAsyncTask, runAfterTasks, isRunning, hasPendingTasks } =
-  useAsyncTasks((context) => saveApi(values, context), {
+  useAfterTasks((context) => saveApi(values, context), {
     onError: (error) => setError(String(error)),
   });
 ```
@@ -200,7 +203,7 @@ requestIdは保存要求ごとのIDとして通信層へ渡せます。ログ記
 import { useLatestCommitted } from "./useLatestCommitted";
 
 const getValues = useLatestCommitted(values);
-const { runAfterTasks } = useAsyncTasks(
+const { runAfterTasks } = useAfterTasks(
   async () => {
     await checkPermission();
     await save(getValues()); // この時点の最新commit済み値が必要な場合だけ
@@ -214,12 +217,12 @@ getterはcommitを待ちません。`setValues(next); getValues()`でnextを保�
 ## IME・フォーカス・イベント
 
 ```tsx
-import { useAsyncSubmit } from "./useAsyncSubmit";
+import { useAfterTasksSubmit } from "./useAfterTasksSubmit";
 
-const submitEvents = useAsyncSubmit(runAfterTasks);
+const submitEvents = useAfterTasksSubmit(runAfterTasks);
 return (
   <form {...submitEvents}>
-    <TrackedInput {...inputProps} />
+    <AfterTasksInput {...inputProps} />
     <button type="submit">保存</button>
   </form>
 );
@@ -227,7 +230,7 @@ return (
 
 compositionイベント、isComposing、互換の229、Enterの押下/解放を追跡します。変換確定のEnterを抑止し、別のEnterや明示クリックは許可します。OSのIMEによって順序差があるため、後述の手動確認も必要です。
 
-useAsyncFieldの入力はrunAfterTasks時にもdirtyを確定するため、blurが発生しなくても動作します。通常のonBlurからタスクを登録する場合も、既定の自動blurで登録が始まります。onBlur内では最初のawaitより前にregisterAsyncTaskを呼んでください。
+useAfterTasksFieldの入力はrunAfterTasks時にもdirtyを確定するため、blurが発生しなくても動作します。通常のonBlurからタスクを登録する場合も、既定の自動blurで登録が始まります。onBlur内では最初のawaitより前にregisterAsyncTaskを呼んでください。
 
 preventDefaultは元のイベント中に行います。SyntheticEventをactionへ渡しません。blur開始時に保存ボタンを消したりdisabled化するとclick自体が届かないことがあるため、runAfterTasks受付後にisRunningで制御します。
 
@@ -271,7 +274,7 @@ Windows日本語IME + Chrome/Edge、macOS日本語入力 + Safariで、入力→
 対象は`document.activeElement`で、Provider内のフォームに限定されません。別フォームやダイアログの入力・保存ボタンからもフォーカスが外れる場合があります。iframeやShadow DOM内部を再帰的に探索しません。
 
 ```tsx
-const { runAfterTasks } = useAsyncTasks((context) => save(values, context), {
+const { runAfterTasks } = useAfterTasks((context) => save(values, context), {
   onError: showError,
   blurActiveElement: false, // フォーカスを維持する場合
   beforeWait: () => setError(null), // 同期の準備処理。asyncにはしない
@@ -280,7 +283,7 @@ const { runAfterTasks } = useAsyncTasks((context) => save(values, context), {
 });
 ```
 
-対象を限定する場合は自動blurをfalseにし、beforeWaitで対象inputだけをblurできます。useAsyncFieldはfalseでもdirty入力を確定します。blur()が非同期ハンドラー自体をawaitするわけではなく、Contextへ登録されたタスクの完了を待ちます。
+対象を限定する場合は自動blurをfalseにし、beforeWaitで対象inputだけをblurできます。useAfterTasksFieldはfalseでもdirty入力を確定します。blur()が非同期ハンドラー自体をawaitするわけではなく、Contextへ登録されたタスクの完了を待ちます。
 
 ## Lintと整形
 
@@ -295,16 +298,16 @@ ESLintはflat configの`eslint.config.js`、Prettierは`.prettierrc.json`で設�
 
 ## テストの配置
 
-単体テストはsrcの相対パスとファイル名に対応させます。例えばsrc/AsyncTasks.tsxのテストはtests/AsyncTasks.test.tsxです。srcにサブディレクトリを追加した場合も同じ階層を使います。
+単体テストはsrcの相対パスとファイル名に対応させます。例えばsrc/AfterTasks.tsxのテストはtests/AfterTasks.test.tsxです。srcにサブディレクトリを追加した場合も同じ階層を使います。
 
-| 実装                      | 単体テスト                        |
-| ------------------------- | --------------------------------- |
-| src/AsyncTasks.tsx        | tests/AsyncTasks.test.tsx         |
-| src/useAsyncField.ts      | tests/useAsyncField.test.tsx      |
-| src/TrackedInput.tsx      | tests/TrackedInput.test.tsx       |
-| src/useAsyncSubmit.ts     | tests/useAsyncSubmit.test.tsx     |
-| src/useLatestCommitted.ts | tests/useLatestCommitted.test.tsx |
-| src/exampleSaveAdapter.ts | tests/exampleSaveAdapter.test.ts  |
+| 実装                       | 単体テスト                         |
+| -------------------------- | ---------------------------------- |
+| src/AfterTasks.tsx         | tests/AfterTasks.test.tsx          |
+| src/useAfterTasksField.ts  | tests/useAfterTasksField.test.tsx  |
+| src/AfterTasksInput.tsx    | tests/AfterTasksInput.test.tsx     |
+| src/useAfterTasksSubmit.ts | tests/useAfterTasksSubmit.test.tsx |
+| src/useLatestCommitted.ts  | tests/useLatestCommitted.test.tsx  |
+| src/exampleSaveAdapter.ts  | tests/exampleSaveAdapter.test.ts   |
 
 フォームや複数部品の連携、SSRなどの結合テストはtests/integration/に配置します。例示コンポーネントは結合テストから検証します。tests/helpers.tsはPromiseの完了タイミングなどを制御するテスト用ヘルパーです。browser-tests/は実ブラウザーでの結合テストとして別配置を維持します。npm testで単体・結合の両方を実行します。
 
@@ -326,11 +329,11 @@ registerAsyncTask(({ signal }) => validate(input, { signal }));
 
 ## hasPendingTasksとisRunning
 
-`hasPendingTasks`は、未完了の登録タスクが1件でもある間trueです。keyなしで登録したタスクやblocking:falseの背景処理も含み、同じProviderの全子孫で共有します。引数なしのuseAsyncTasksからも購読できます。
+`hasPendingTasks`は、未完了の登録タスクが1件でもある間trueです。keyなしで登録したタスクやblocking:falseの背景処理も含み、同じProviderの全子孫で共有します。引数なしのuseAfterTasksからも購読できます。
 
 ```tsx
 const { registerAsyncTask, runAfterTasks, isRunning, hasPendingTasks } =
-  useAsyncTasks((context) => save(values, context), { onError: showError });
+  useAfterTasks((context) => save(values, context), { onError: showError });
 // hasPendingTasksは入力の処理中表示に使い、保存ボタンの無効化にはisRunningを使います。
 ```
 
@@ -343,9 +346,9 @@ const { registerAsyncTask, runAfterTasks, isRunning, hasPendingTasks } =
 
 未確定入力(dirty)だけの状態はhasPendingTasksに含みません。タスクの取消・期限切れでは管理対象から外れるため、元のPromiseが残っていてもhasPendingTasksを解除します。blur直後に保存ボタンを無効化するとclickが届かなくなる場合があるので、ボタンのdisabledはisRunningを使います。
 
-## useAsyncTasksの戻り値
+## useAfterTasksの戻り値
 
-戻り値の型はTaskActionResultとAsyncTasksSnapshotで公開し、各プロパティにも説明コメントを付けています。
+戻り値の型はAfterTasksExecutionとAfterTasksSnapshotで公開し、各プロパティにも説明コメントを付けています。
 
 | 項目            | 意味と利用場面                                                            |
 | --------------- | ------------------------------------------------------------------------- |
@@ -355,4 +358,4 @@ const { registerAsyncTask, runAfterTasks, isRunning, hasPendingTasks } =
 | phase           | idle/preparing/waiting/ready/executingの現在段階                          |
 | requestId       | 保存要求の識別子。要求がない場合はnull。入力タスクのUUIDとは別            |
 
-中心ファイルのuseTaskActionのreturnではspreadを使わず、全5項目を説明付きで列挙しています。
+中心ファイルのuseAfterTasksExecutionのreturnではspreadを使わず、全5項目を説明付きで列挙しています。

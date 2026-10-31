@@ -8,10 +8,10 @@ const useCommitEffect =
  * render中にrefを書き換えないため、途中で破棄されたレンダーの値を公開しません。
  * setState直後の値を即座に取得する関数ではありません。
  * @example
- * import { useAsyncTasks } from "./AsyncTasks";
+ * import { useAfterTasks } from "./AfterTasks";
  * import { useLatestCommitted } from "./useLatestCommitted";
  * const getValues = useLatestCommitted(values);
- * const { runAfterTasks } = useAsyncTasks(async () => {
+ * const { runAfterTasks } = useAfterTasks(async () => {
  *   await checkPermission();
  *   await save(getValues()); // checkPermission待機中の編集も含めて読む場合
  * }, { onError: console.error });
