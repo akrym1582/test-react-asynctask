@@ -1,7 +1,7 @@
 # React AsyncTasks
 
 非同期blurで入力を確定してから、最新のレンダーのstateで保存するための共通処理です。
-**`src/AsyncTasks.tsx`の1ファイルだけコピー**して利用できます。React以外の実行時依存はありません。
+**Context・Hookは`src/AsyncTasks.tsx`の1ファイルだけコピー**して利用できます。任意のUI部品`TrackedInput`を使う場合だけ、`src/TrackedInput.tsx`もコピーしてください。React以外の実行時依存はありません。
 
 ## 無期限で待つ設定
 
@@ -79,7 +79,8 @@ const { run, busy, blocked } = useAfterTasks(async context => {
 
 | ファイル                   | 役割                                                     |
 | -------------------------- | -------------------------------------------------------- |
-| src/AsyncTasks.tsx         | Context、タスク管理、Hook、入力、submit補助（配布用）    |
+| src/AsyncTasks.tsx         | Context、タスク管理、Hook、submit補助（単独配布可能）    |
+| src/TrackedInput.tsx       | 任意の入力UI部品。AsyncTasks.tsxの公開Hookを利用         |
 | src/ExampleForm.tsx        | 複数入力、IME、即時エラー表示、保存結果照会の例          |
 | src/PlainBlurExample.tsx   | 既存のasync blurをContextへ登録する最小例                |
 | src/LatestStateExample.tsx | await後に最新committed値を読む例                         |
@@ -92,6 +93,17 @@ const { run, busy, blocked } = useAfterTasks(async context => {
 Reactのイベント関数は、そのレンダー時点のstateを保持します。古いイベント関数の中でPromiseを待っても、その関数のstateが最新に変わるわけではありません。
 
 このHookはタスクを待った後にHookのstateを更新し、対応する新しいレンダーのEffectからactionを呼びます。レンダー番号とタスクのrevisionを両方確認するため、待機完了とEffectの間にタスクが増えた場合も再確認します。flushSyncや固定時間のsleepで順番を推測しません。
+
+## TrackedInputを使う場合だけ追加するファイル
+
+Context・Hookのimport先は変更ありません。TrackedInputのimport先のみ変更してください。
+
+```tsx
+import { AsyncTasksProvider, useAfterTasks, useAsyncField } from "./AsyncTasks";
+import { TrackedInput, type TrackedInputProps } from "./TrackedInput";
+```
+
+`AsyncTasks.tsx`からTrackedInputを再exportしていません。これにより、TrackedInput.tsxをコピーしなくてもContext・Hookだけで動作します。
 
 ## 旧onBlur形式からの移行
 

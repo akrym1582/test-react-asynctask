@@ -1,6 +1,7 @@
 /**
  * Reactの非同期入力確定を、保存などのイベント処理より先に完了させる共通部品です。
- * この1ファイルをコピーすれば利用できます。React以外の実行時依存はありません。
+ * ContextとHookはこの1ファイルだけで利用できます。React以外の実行時依存はありません。
+ * 任意のUI部品TrackedInputは別ファイルです。このファイルからは参照しません。
  *
  * 基本の流れ:
  * 1. useAsyncField（またはTrackedInput）が編集をdirty（未確定）として記録する。
@@ -13,7 +14,6 @@
  */
 import {
   createContext,
-  forwardRef,
   useCallback,
   useContext,
   useEffect,
@@ -21,8 +21,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ComponentPropsWithoutRef,
-  type FocusEvent,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -859,6 +857,7 @@ export type AsyncFieldOptions = FieldConfig & {
 /**
  * TrackedInputを使わずに、入力の世代・確定・破棄を管理します。
  * changeはstateを変更しないため、画面のsetterも呼んでください。
+ * nullを渡すと入力を登録しません。入力を条件付きで有効化する場合に使えます。
  * commitはblurで呼びます。runからもdirty項目を自動確定するため、blur漏れに対応します。
  * @example
  * const nameField = useAsyncField({
@@ -873,11 +872,11 @@ export type AsyncFieldOptions = FieldConfig & {
  *   setName(value);
  * }} onBlur={nameField.commit} />;
  */
-export function useAsyncField(options: AsyncFieldOptions) {
+export function useAsyncField(options: AsyncFieldOptions | null) {
   return useManagedField(options);
 }
 
-// TrackedInputの互換形式はnullを渡し、入力の所有者を登録しません。
+// optionsがnullなら入力の所有者を登録しません。
 // 公開Hookと入力部品が同じ管理処理を使うため、競合対策が二重実装になりません。
 function useManagedField(options: AsyncFieldOptions | null) {
   const store = useAsyncTasks();
@@ -929,96 +928,6 @@ function useManagedField(options: AsyncFieldOptions | null) {
   const reset = useCallback((input: string) => field.current?.reset(input), []);
   return { change, commit, reset, ...snapshot };
 }
-
-type InputBase = Omit<ComponentPropsWithoutRef<"input">, "onBlur"> & {
-  taskKey: string;
-};
-/** 旧onBlur形式とmanaged形式は同時指定できません。managed形式は文字列の入力専用です。 */
-export type TrackedInputProps = InputBase &
-  (
-    | {
-        normalize?: never;
-        onCommit?: never;
-        timeoutMs?: never;
-        resetKey?: never;
-        onBlur?: (event: FocusEvent<HTMLInputElement>) => void | Promise<void>;
-      }
-    | {
-        value: string;
-        type?: "text" | "search" | "email" | "tel" | "url" | "password";
-        normalize: FieldConfig["normalize"];
-        onCommit: FieldConfig["onCommit"];
-        timeoutMs?: Timeout;
-        resetKey?: unknown;
-        onBlur?: never;
-      }
-  );
-/**
- * normalize（通信/計算）とonCommit（state反映）を分けた入力部品です。
- * 最新の世代の結果だけonCommitへ渡すので、画面側で世代番号を管理する必要がありません。
- * 初期valueは確定済みとして扱います。resetKey変更で同じ値も再確定対象にできます。
- * @example
- * <TrackedInput taskKey="name" value={name}
- *   onChange={event => setName(event.currentTarget.value)}
- *   normalize={(input, { signal }) => normalizeName(input, { signal })}
- *   onCommit={setName} />
- *
- * @example
- * // 互換形式。完了は待てますが、内部の古いsetStateは共通側から取り消せません。
- * <TrackedInput taskKey="name" onBlur={async event => {
- *   const input = event.currentTarget.value; // awaitより前に取得
- *   await legacyBlur(input);
- * }} />
- */
-export const TrackedInput = forwardRef<HTMLInputElement, TrackedInputProps>(
-  function TrackedInput(props, ref) {
-    const store = useAsyncTasks();
-    const {
-      taskKey,
-      normalize,
-      onCommit,
-      timeoutMs,
-      resetKey,
-      onBlur,
-      onChange,
-      ...input
-    } = props;
-    const managed = normalize !== undefined;
-    const field = useManagedField(
-      managed
-        ? {
-            taskKey,
-            value: input.value as string,
-            normalize,
-            onCommit: onCommit!,
-            timeoutMs,
-            resetKey,
-          }
-        : null,
-    );
-    return (
-      <input
-        {...input}
-        ref={ref}
-        onChange={(event) => {
-          field.change(event.currentTarget.value);
-          onChange?.(event);
-        }}
-        onBlur={(event) => {
-          if (managed) {
-            field.commit();
-            return;
-          }
-          try {
-            store.register(Promise.resolve(onBlur?.(event)), taskKey);
-          } catch (error) {
-            store.register(Promise.reject(error), taskKey);
-          }
-        }}
-      />
-    );
-  },
-);
 
 /**
  * formにspreadするイベント群。変換確定のEnterで保存しないよう押下サイクルを管理します。

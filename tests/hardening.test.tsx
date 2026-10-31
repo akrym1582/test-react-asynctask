@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TrackedInput } from "../src/TrackedInput";
 import { StrictMode, Suspense, startTransition, useState } from "react";
 import {
   act,
@@ -13,7 +14,6 @@ import {
   AsyncTasksProvider,
   createTaskStore,
   useAfterTasks,
-  TrackedInput,
   useAsyncSubmit,
   useLatestCommitted,
   useTaskField,
