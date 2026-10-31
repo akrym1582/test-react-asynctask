@@ -84,7 +84,14 @@ export type AfterTasksOptions<T = unknown> = {
   blocking?: boolean;
   /** このタスクの期限（ミリ秒）。省略時はProviderのtaskTimeoutMs、nullなら無期限です。 */
   timeoutMs?: AfterTasksTimeout;
-  /** 最新かつ有効な処理に限り同期実行。非同期関数は禁止。 */
+  /**
+   * 省略可能。タスクが有効なまま成功した場合に、戻り値を受け取って同期的に実行します。
+   * 非同期関数は指定しないでください。取消・期限切れ・置き換え後の古い結果は反映しません。
+   * 省略してfactory内で直接setStateしても構いません。戻り値なし（void）の処理も登録できます。
+   * ただし、直接呼ぶsetStateはこの仕組みでは止められません。非同期処理がsignalを無視して
+   * 続いた場合、取消・期限切れ・置き換え後にも古い値が反映される可能性があります。
+   * 古い結果の反映を防ぎたい場合は、factoryから値を返し、このonCommitでsetStateしてください。
+   */
   onCommit?: (value: T) => void;
 };
 /** Provider初期設定。入力・総待機・保存の期限はすべて省略時null（無期限）です。 */
@@ -233,7 +240,12 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   /**
    * 通信開始前にsignalを準備できるfactory形式。同期throwもタスクの失敗へ変換します。
    * key省略時は自動UUIDで独立登録し、全件を待機します。固定keyの再登録時だけ古い結果を無効化します。
-   * @param factory signalを受け取り処理を開始する関数。値またはPromiseを返します。
+   * @param factory signalを受け取り処理を開始する関数。同期・非同期どちらも指定できます。
+   * 値やPromiseを返すほか、直接setStateして何も返さない（void）形でも登録できます。
+   * 待機対象の非同期処理は必ずawaitするか、そのPromiseをreturnしてください。
+   * Promiseを返さず非同期処理を開始しただけでは、その完了やstate更新を待てません。
+   * 直接setStateする場合、その呼び出しは取消・期限切れ・置き換え後も防止できません。
+   * 古い結果を反映させたくない場合は、値を返してoptions.onCommitで反映してください。
    * @param options 省略可能。結果を反映する同期onCommit、期限、blocking、必要な場合だけ固定keyを指定します。
    * @returns result（rejectしない結果Promise）、signal、getStatus、cancelを持つハンドル。
    * @example
@@ -244,6 +256,23 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
    * const result = await handle.result;
    * if (result.status === "fulfilled") console.log(result.value);
    * // handle.cancel() は中断要求です。サーバー側の処理停止までは保証しません。
+   * @example
+   * // 同期処理・戻り値なし・onCommitなしでも登録できます。
+   * tasks.registerAsyncTask(() => {
+   *   setValue(normalizeSync(input));
+   * });
+   * @example
+   * // 非同期処理内で直接setStateする場合は、処理全体をawaitさせます。
+   * tasks.registerAsyncTask(async ({ signal }) => {
+   *   const value = await normalize(input, { signal });
+   *   setValue(value); // 取消後などでも呼ばれ得るため、古い結果との競合に注意してください。
+   * });
+   * @example
+   * // 古い結果を防ぐ場合: 値の計算とstateへの反映を分けます。
+   * tasks.registerAsyncTask(({ signal }) => normalize(input, { signal }), {
+   *   key: "value",
+   *   onCommit: setValue, // 取消・期限切れ・同じkeyでの置き換え後は呼びません。
+   * });
    */
   function registerAsyncTask<T>(
     factory: (context: { signal: AbortSignal }) => T | Promise<T>,
