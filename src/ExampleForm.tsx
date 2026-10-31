@@ -1,6 +1,6 @@
 import { useAsyncSubmit } from "./useAsyncSubmit";
 import { useAsyncField, useTaskField } from "./useAsyncField";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   AsyncTasksProvider,
   useAsyncTasks,
@@ -55,7 +55,6 @@ function Fields({
 }: Props) {
   const [values, setValues] = useState<Values>({ name: "", address: "" });
   const [error, setError] = useState<string | null>(null);
-  const formRef = useRef<HTMLFormElement>(null);
   const { runAfterTasks, busy, isResultUnknown, requestId, reconcile } =
     useAsyncTasks(
       // valuesはactionを開始するレンダーでのsnapshotです。
@@ -66,12 +65,6 @@ function Fields({
       {
         beforeWait: () => {
           setError(null);
-          const active = document.activeElement;
-          if (
-            active instanceof HTMLElement &&
-            formRef.current?.contains(active)
-          )
-            active.blur();
         },
         onError: (error) =>
           setError(
@@ -94,7 +87,7 @@ function Fields({
   });
   const submitEvents = useAsyncSubmit(runAfterTasks);
   return (
-    <form ref={formRef} {...submitEvents}>
+    <form {...submitEvents}>
       <label>
         氏名
         <input

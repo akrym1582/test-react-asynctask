@@ -25,7 +25,7 @@ Playwright 1.58.2のFirefox用`fill()`は内部でcompositionイベントを発�
 
 テストでは、期限とnullによる無期限待機、取消後の遅延完了、背景処理、入力の世代切替、dirty確定、項目別エラー、動的項目の破棄、保存結果不明と照会、冪等性fake、最新値getter、IME合成イベント、保存snapshot、SSRを確認しています。無期限待機の1時間経過はfake timerで検証します。
 
-最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・41件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
+最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・45件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
 
 ## ローカル環境と別途必要な確認
 
@@ -44,3 +44,9 @@ Playwright 1.58.2のFirefox用`fill()`は内部でcompositionイベントを発�
 同じHookで登録したタスクのstate反映後に保存されること、登録専用の別コンポーネントにもbusyと保存結果不明の状態が伝わることを追加検証し、テストは41件になりました。React 19の型チェック・41件・4構成コピー検証・本番ビルドが成功しています。入力待機期限、保存期限、結果不明と照会の既存テストも新しいAPI名で実行しています。
 
 React 18.3.1でも型チェック・同じ41件・4構成のコピー検証が成功しました。
+
+## 自動フォーカス解除
+
+blurActiveElementを追加し、既定で重複排除後・beforeWait前に現在のHTML要素をblurします。falseではフォーカスを維持します。サンプルの手動blurを削除し、各引数・オプションのJSDocを拡充しました。
+
+省略時・true・falseの動作、blurからの再入、登録されたタスクのstate反映待ち、blur失敗時の通知とbusy解除を検証しています。React 18/19で各45件、型チェック・4構成のコピー検証が成功し、本番ビルドも成功しました。

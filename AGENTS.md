@@ -24,6 +24,8 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 - `runAfterTasks`はイベントハンドラーとして使うvoid関数です。`await runAfterTasks()`で保存終了を待てると説明しないでください。成功後の処理はaction内へ書きます。
 - タイムアウトの`null`は無期限、`undefined`は既定値を継承します。0・負数・NaN・Infinityは無効です。無期限でも取消とunmountの後始末は必要です。
 
+- `blurActiveElement`の既定値はtrueです。重複排除後、beforeWaitより前に現在のHTML要素をblurします。falseはフォーカスを維持します。SSRではdocumentを参照せず、対象がProviderのDOM範囲に限定されない点を説明してください。
+
 ## 保持すべき動作
 
 - 単純なPromise待機だけでは古いclosureは更新されません。タスク完了後に再レンダーし、そのレンダーに対応するactionを呼びます。

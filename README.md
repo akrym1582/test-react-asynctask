@@ -53,11 +53,11 @@ import { useAsyncSubmit } from "./useAsyncSubmit";
 const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } = useAsyncTasks(async context => {
   await save({ name }, context);
 }, {
-  beforeWait: () => inputRef.current?.blur(),
+  blurActiveElement: true, // 省略時もtrue。onBlurからタスクを登録させる
   onError: error => setError(String(error)),
 });
 
-<input ref={inputRef} value={name} readOnly={busy || isResultUnknown}
+<input value={name} readOnly={busy || isResultUnknown}
   onChange={event => setName(event.currentTarget.value)}
   onBlur={event => {
     const input = event.currentTarget.value; // イベントの値は同期的に取得
@@ -232,7 +232,7 @@ return (
 
 compositionイベント、isComposing、互換の229、Enterの押下/解放を追跡します。変換確定のEnterを抑止し、別のEnterや明示クリックは許可します。OSのIMEによって順序差があるため、後述の手動確認も必要です。
 
-useAsyncFieldの入力はrunAfterTasks時にもdirtyを確定するため、blurが発生しなくても動作します。通常のonBlurからタスクを登録する場合は、beforeWaitから対象inputのblur()を同期的に呼びます。PlainBlurExampleに例を示しています。
+useAsyncFieldの入力はrunAfterTasks時にもdirtyを確定するため、blurが発生しなくても動作します。通常のonBlurからタスクを登録する場合も、既定の自動blurで登録が始まります。onBlur内では最初のawaitより前にregisterAsyncTaskを呼んでください。
 
 preventDefaultは元のイベント中に行います。SyntheticEventをactionへ渡しません。blur開始時に保存ボタンを消したりdisabled化するとclick自体が届かないことがあるため、runAfterTasks受付後にbusy/isResultUnknownで制御します。
 
@@ -266,3 +266,21 @@ CIはReact 18/19の単体・型・コピー検証と、3種類のブラウザー
 ### 実OSのIME手動確認
 
 Windows日本語IME + Chrome/Edge、macOS日本語入力 + Safariで、入力→変換→Enter確定→別Enter保存、変換候補表示中の保存クリック、Space変換、Tab移動を確認します。変換確定だけで保存されず、明示した保存が1回だけ実行されること、保存値が正規化後の値であることを確認してください。合成compositionイベントの成功を実OSの検証済みとは扱いません。
+
+## 自動フォーカス解除のオプション
+
+`blurActiveElement`は省略時trueです。実行順序は、重複要求の排除 → フォーカス中のHTML要素のblur → beforeWait → 入力確定・タスク待機 → 再レンダー → actionです。
+
+対象は`document.activeElement`で、Provider内のフォームに限定されません。別フォームやダイアログの入力・保存ボタンからもフォーカスが外れる場合があります。iframeやShadow DOM内部を再帰的に探索しません。
+
+```tsx
+const { runAfterTasks } = useAsyncTasks((context) => save(values, context), {
+  onError: showError,
+  blurActiveElement: false, // フォーカスを維持する場合
+  beforeWait: () => setError(null), // 同期の準備処理。asyncにはしない
+  waitTimeoutMs: null, // 入力タスクは無期限で待つ
+  actionTimeoutMs: 30000, // 保存開始から30秒。結果不明なら再送を止める
+});
+```
+
+対象を限定する場合は自動blurをfalseにし、beforeWaitで対象inputだけをblurできます。useAsyncFieldはfalseでもdirty入力を確定します。blur()が非同期ハンドラー自体をawaitするわけではなく、Contextへ登録されたタスクの完了を待ちます。

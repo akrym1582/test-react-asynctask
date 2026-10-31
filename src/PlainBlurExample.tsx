@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { AsyncTasksProvider, useAsyncTasks } from "./AsyncTasks";
 
 /**
@@ -39,17 +39,15 @@ function Fields({
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
   const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } =
     useAsyncTasks(
       async () => {
         await save(value);
       },
       {
-        // フォーカスが残っている場合も、blurを発生させてから登録済みタスクを待ちます。
+        // 自動blurは既定で有効です。beforeWaitでは画面の準備だけ行います。
         beforeWait: () => {
           setError("");
-          inputRef.current?.blur();
         },
         onError: (error) => setError(String(error)),
       },
@@ -57,7 +55,6 @@ function Fields({
   return (
     <>
       <input
-        ref={inputRef}
         value={value}
         readOnly={busy || isResultUnknown}
         onChange={(event) => setValue(event.currentTarget.value)}

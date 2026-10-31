@@ -82,16 +82,22 @@ export type TaskHandle<T> = {
 };
 /** blocking=falseは保存に無関係な背景処理用。送信データを変更する処理には使わないでください。 */
 export type TaskOptions<T = unknown> = {
+  /** 省略時true。falseは保存に無関係な背景処理用で、完了待機・保存阻止の対象から外します。 */
   blocking?: boolean;
+  /** このタスクの期限（ミリ秒）。省略時はProviderのtaskTimeoutMs、nullなら無期限です。 */
   timeoutMs?: Timeout;
   /** 最新かつ有効な処理に限り同期実行。非同期関数は禁止。 */
   onCommit?: (value: T) => void;
 };
 /** Provider初期設定。入力15秒、総待機30秒、保存30秒が既定です。 */
 export type TasksConfig = {
+  /** タスク1件の既定期限。省略時15000ms、nullは無期限。登録時のtimeoutMsで上書きできます。 */
   taskTimeoutMs?: Timeout;
+  /** 入力確定を待つ総期限の既定値。省略時30000ms、nullは無期限。Hook側で上書きできます。 */
   waitTimeoutMs?: Timeout;
+  /** 保存処理の既定期限。省略時30000ms、nullは無期限。Hook側で上書きできます。 */
   actionTimeoutMs?: Timeout;
+  /** タスクが失敗・期限切れになった時点の同期通知。保存要求がなくても呼ばれます。 */
   onTaskError?: (error: AsyncTaskError) => void;
 };
 export type ActionPhase =
@@ -101,7 +107,12 @@ export type ActionPhase =
   | "ready"
   | "executing"
   | "uncertain";
-export type ActionContext = { signal: AbortSignal; requestId: string };
+export type ActionContext = {
+  /** 保存期限切れ・Scope破棄等の取消要求。fetch等へ渡します。サーバーの処理停止は保証しません。 */
+  signal: AbortSignal;
+  /** 1回の保存要求を識別するID。サーバーの重複排除・結果照会に利用します。 */
+  requestId: string;
+};
 /** 入力の見た目に利用する状態。dirtyは「編集中で、まだ確定していない」を意味します。 */
 export type FieldSnapshot = Readonly<{
   phase: "clean" | "dirty" | "pending" | "error" | "disposed";
@@ -230,6 +241,10 @@ export function createTaskStore(config: TasksConfig = {}) {
   /**
    * 通信開始前にsignalを準備できるfactory形式。同期throwもタスクの失敗へ変換します。
    * 同じkeyの旧処理はsuperseded（新しい処理で置換された）にして結果を無効化します。
+   * @param key 入力・処理を識別する名前。同じkeyの再登録は前の処理を無効化します。
+   * @param factory signalを受け取り処理を開始する関数。値またはPromiseを返します。
+   * @param options タスクの期限、保存待機の対象か、結果を反映する同期onCommitを指定します。
+   * @returns result（rejectしない結果Promise）、signal、getStatus、cancelを持つハンドル。
    * @example
    * const handle = tasks.registerAsyncTask("name", ({ signal }) =>
    *   fetch("/api/name", { signal }).then(response => response.json()),
@@ -625,6 +640,13 @@ export function AsyncTasksProvider({
  * });
  */
 export function useAsyncTasks(): TaskStore;
+/**
+ * @param action 入力タスク完了と再レンダー後に実行する保存処理。最新レンダーのstateを参照します。
+ * 引数context.signalは取消要求、context.requestIdは保存要求の識別子です。通信層まで渡してください。
+ * action内でawaitした後も同じclosureのstateが自動更新されるわけではありません。
+ * @param options 自動フォーカス解除・準備処理・期限・エラー通知の設定。onErrorは必須です。
+ * @returns 登録操作、runAfterTasks、共有状態、結果照会操作。runAfterTasksはvoidを返します。
+ */
 export function useAsyncTasks(
   action: (context: ActionContext) => void | Promise<void>,
   options: AsyncTasksOptions,
@@ -663,11 +685,44 @@ export function useLatestCommitted<T>(value: T): () => T {
   });
   return useCallback(() => ref.current, []);
 }
-/** onErrorは保存要求の失敗通知。beforeWaitはblurなどの同期準備に利用します。 */
+/** useAsyncTasksの第2引数。保存要求ごとの準備・期限・エラー通知を設定します。 */
 export type AsyncTasksOptions = {
+  /**
+   * 必須。自動blur・beforeWait・入力待機・actionの失敗を通知します。
+   * エラー表示などを同期的に行ってください。入力処理の失敗はAggregateErrorになる場合があります。
+   * 保存結果が不明な場合も呼ばれますが、これだけで再送可能になるわけではありません。
+   */
   onError: (error: unknown) => void;
+  /**
+   * 省略時true。runAfterTasks受付後、beforeWaitより先にフォーカス中のHTML要素へblur()します。
+   * Enter送信などで入力欄にフォーカスが残っていても、onBlurからタスクを登録させるためです。
+   * blur()自体は非同期処理を待ちません。onBlurでは最初のawaitより前にタスクを登録してください。
+   * 対象はdocument.activeElementで、ProviderのDOM範囲には限定されません。
+   * 別フォーム・ダイアログの入力や保存ボタンからもフォーカスが外れる場合があります。
+   * フォーカス維持や対象限定が必要ならfalseにし、必要に応じbeforeWaitで対象だけblurします。
+   * useAsyncFieldはfalseでも未確定入力を自動確定します。SSRではDOM操作を行いません。
+   * iframe・Shadow DOM内部を再帰的に探索する機能ではありません。
+   */
+  blurActiveElement?: boolean;
+  /**
+   * 任意の同期準備処理。自動blurの後、入力タスクの待機開始前に呼びます。
+   * エラー表示のクリアや追加タスクの登録に使います。async関数は指定しないでください。
+   * この処理でthrowするとonErrorへ通知し、保存を開始せずbusyを解除します。
+   */
   beforeWait?: () => void;
+  /**
+   * 入力確定を待つ総期限（ミリ秒）。runAfterTasks受付時から計測します。
+   * 省略時はProviderのwaitTimeoutMs（既定30秒）、nullなら無期限です。
+   * 超過時は保存を開始せず入力処理へ取消を要求します。isResultUnknownはfalseです。
+   * JavaScriptの同期処理を途中で強制終了することはできません。
+   */
   waitTimeoutMs?: Timeout;
+  /**
+   * action開始から保存結果を待つ期限（ミリ秒）。入力待機の時間は含みません。
+   * 省略時はProviderのactionTimeoutMs（既定30秒）、nullなら無期限です。
+   * 超過時はサーバーで保存済みの可能性があるためisResultUnknownをtrueにします。
+   * 自動再送はせず、reconcileで実際の保存結果を照会してください。
+   */
   actionTimeoutMs?: Timeout;
 };
 /**
@@ -793,7 +848,19 @@ function useTaskAction(
         store.release(owner);
       }, waitTimeout);
     try {
-      synchronous(getOptions().beforeWait?.(), "beforeWait");
+      const currentOptions = getOptions();
+      // 重複要求の排除後にblurします。blurによる再入でも二重保存を開始させません。
+      // document参照は実行時だけに限定し、SSRから呼ばれても参照エラーを起こしません。
+      if (
+        currentOptions.blurActiveElement !== false &&
+        typeof document !== "undefined"
+      ) {
+        const active = document.activeElement;
+        if (typeof HTMLElement !== "undefined" && active instanceof HTMLElement)
+          active.blur();
+      }
+      if (!current.active || pending.current !== current) return;
+      synchronous(currentOptions.beforeWait?.(), "beforeWait");
       store.setPhase(owner, "waiting");
       prepare(current);
     } catch (error) {
