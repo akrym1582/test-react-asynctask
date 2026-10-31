@@ -95,9 +95,9 @@ export const TrackedInput = forwardRef<HTMLInputElement, TrackedInputProps>(
             return;
           }
           try {
-            store.register(Promise.resolve(onBlur?.(event)), taskKey);
+            store.registerAsyncTask(Promise.resolve(onBlur?.(event)), taskKey);
           } catch (error) {
-            store.register(Promise.reject(error), taskKey);
+            store.registerAsyncTask(Promise.reject(error), taskKey);
           }
         }}
       />

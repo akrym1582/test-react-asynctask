@@ -183,7 +183,7 @@ type ActionOwner = {
  * Reactに依存しない状態管理部分なので、単体テストでは直接使えます。
  * @example
  * const store = createTaskStore({ taskTimeoutMs: 5000 });
- * store.register(loadSomething(), "input");
+ * store.registerAsyncTask(loadSomething(), "input");
  * await store.wait(); // 成功時だけここに進む。Reactのcommitを待つ用途ではない。
  */
 export function createTaskStore(config: TasksConfig = {}) {
@@ -477,9 +477,9 @@ export function createTaskStore(config: TasksConfig = {}) {
     mountField,
     /**
      * 旧API: 開始済みPromiseを登録します。元の処理は強制停止できません。
-     * @example register(handleBlur(value), "name");
+     * @example registerAsyncTask(handleBlur(value), "name");
      */
-    register(task: Promise<unknown>, key: string | symbol = Symbol()) {
+    registerAsyncTask(task: Promise<unknown>, key: string | symbol = Symbol()) {
       track(key, () => task);
     },
     /** 全体エラーを解除し、managed入力の失敗は再確定します。通常は項目の再編集で回復します。 */

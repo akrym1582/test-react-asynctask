@@ -26,7 +26,7 @@
 通常のinputとContextだけで使えます。`src/PlainBlurExample.tsx`に、Providerとエラー表示を含めた例があります。
 
 ```tsx
-const { register } = useAsyncTasks();
+const { registerAsyncTask } = useAsyncTasks();
 const { run, busy, blocked } = useAfterTasks(async () => {
   await save(values);
 }, {
@@ -35,7 +35,7 @@ const { run, busy, blocked } = useAfterTasks(async () => {
 });
 
 <input ref={inputRef} onBlur={event => {
-  register(handleBlur(event.currentTarget.value), "name");
+  registerAsyncTask(handleBlur(event.currentTarget.value), "name");
 }} />
 <button type="button" onClick={run} disabled={busy || blocked}>保存</button>
 ```
@@ -123,18 +123,22 @@ import { TrackedInput, type TrackedInputProps } from "./TrackedInput";
 
 managed形式は文字列のtext/search/email/tel/url/password入力専用です。初期valueは確定済みとして扱います。編集・外部value変更はdirtyとなり、blurまたはrunで確定されます。同じ値を明示的に再確定したい場合はresetKeyを変更するか、`tasks.resetField(key, value)`を使います。
 
+## 登録メソッドの名前変更
+
+開始済みPromiseの登録メソッドは、他のライブラリーの名前と区別しやすい`registerAsyncTask`へ変更しました。以前の`register`を使用している場合は、呼び出し・分割代入を`registerAsyncTask`へ置き換えてください。引数と動作は同じです。
+
 ## API
 
-| API                                           | 用途                                             |
-| --------------------------------------------- | ------------------------------------------------ |
-| AsyncTasksProvider                            | フォーム単位の管理範囲・初期設定                 |
-| useAfterTasks(action, options)                | run/busy/blocked/phase/requestId/reconcileを取得 |
-| useAsyncTasks().register(promise, key?)       | 開始済みPromiseの登録（互換形式）                |
-| useAsyncTasks().track(key, factory, options?) | signalを準備してから処理を開始                   |
-| useAsyncField(options)                        | 通常のinputから使える入力確定・世代管理Hook      |
-| useTaskField(key)                             | managed入力のclean/dirty/pending/error状態を購読 |
-| useLatestCommitted(value)                     | 最新committed値を返す安定したgetter              |
-| useAsyncSubmit(run)                           | IME対応のformイベント群                          |
+| API                                              | 用途                                             |
+| ------------------------------------------------ | ------------------------------------------------ |
+| AsyncTasksProvider                               | フォーム単位の管理範囲・初期設定                 |
+| useAfterTasks(action, options)                   | run/busy/blocked/phase/requestId/reconcileを取得 |
+| useAsyncTasks().registerAsyncTask(promise, key?) | 開始済みPromiseの登録（互換形式）                |
+| useAsyncTasks().track(key, factory, options?)    | signalを準備してから処理を開始                   |
+| useAsyncField(options)                           | 通常のinputから使える入力確定・世代管理Hook      |
+| useTaskField(key)                                | managed入力のclean/dirty/pending/error状態を購読 |
+| useLatestCommitted(value)                        | 最新committed値を返す安定したgetter              |
+| useAsyncSubmit(run)                              | IME対応のformイベント群                          |
 
 `track`のhandle.resultはrejectせず、statusで判別する結果を返します。
 

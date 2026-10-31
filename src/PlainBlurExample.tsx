@@ -34,7 +34,7 @@ function Fields({
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const { register } = useAsyncTasks();
+  const { registerAsyncTask } = useAsyncTasks();
   const { run, busy, blocked } = useAfterTasks(
     async () => {
       await save(value);
@@ -60,7 +60,7 @@ function Fields({
         readOnly={busy || blocked}
         onChange={(event) => setValue(event.currentTarget.value)}
         onBlur={(event) =>
-          register(handleBlur(event.currentTarget.value), "value")
+          registerAsyncTask(handleBlur(event.currentTarget.value), "value")
         }
       />
       <button type="button" onClick={run} disabled={busy || blocked}>

@@ -33,12 +33,12 @@ describe("task store", () => {
     const store = createTaskStore();
     const first = deferred<void>();
     const second = deferred<void>();
-    store.register(first.promise);
+    store.registerAsyncTask(first.promise);
     let finished = false;
     const waiting = store.wait().then(() => {
       finished = true;
     });
-    store.register(second.promise);
+    store.registerAsyncTask(second.promise);
     first.resolve();
     await Promise.resolve();
     expect(finished).toBe(false);
@@ -48,10 +48,10 @@ describe("task store", () => {
   });
   it("retains errors until the same field succeeds", async () => {
     const store = createTaskStore();
-    store.register(Promise.reject(new Error("invalid")), "name");
+    store.registerAsyncTask(Promise.reject(new Error("invalid")), "name");
     await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
     await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
-    store.register(Promise.resolve(), "name");
+    store.registerAsyncTask(Promise.resolve(), "name");
     await expect(store.wait()).resolves.toBeUndefined();
   });
   it("locks actions within the scope and ignores stale releases", () => {
@@ -77,11 +77,11 @@ function Harness({
   onError: (error: unknown) => void;
 }) {
   const [value, setValue] = useState("old");
-  const { register } = useAsyncTasks();
+  const { registerAsyncTask } = useAsyncTasks();
   const { run, busy } = useAfterTasks(() => action(value), { onError });
   return (
     <>
-      <button onClick={() => register(task.then(setValue), "value")}>
+      <button onClick={() => registerAsyncTask(task.then(setValue), "value")}>
         blur
       </button>
       <button onClick={run} disabled={busy}>
@@ -195,8 +195,8 @@ describe("additional edge cases", () => {
   it("does not revive an old failure after a newer task with the same key succeeds", async () => {
     const store = createTaskStore();
     const old = deferred<void>();
-    store.register(old.promise, "name");
-    store.register(Promise.resolve(), "name");
+    store.registerAsyncTask(old.promise, "name");
+    store.registerAsyncTask(Promise.resolve(), "name");
     await Promise.resolve();
     await Promise.resolve();
     old.reject(new Error("obsolete"));
@@ -224,14 +224,14 @@ describe("additional edge cases", () => {
       useLayoutEffect(() => {
         if (value === "first" && !added.current) {
           added.current = true;
-          store.register(second.promise.then(setValue), "second");
+          store.registerAsyncTask(second.promise.then(setValue), "second");
         }
       }, [value, store]);
       return (
         <button
           disabled={busy}
           onClick={() => {
-            store.register(first.promise.then(setValue), "first");
+            store.registerAsyncTask(first.promise.then(setValue), "first");
             run();
           }}
         >

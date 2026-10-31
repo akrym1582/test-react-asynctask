@@ -32,3 +32,5 @@
 追加で、null指定による入力・総待機・保存の無期限待機、個別期限の上書き、registerの無期限待機、通常input + useAsyncFieldの古い結果破棄を確認しました。テストの1時間経過はfake timerで再現しています。
 
 TrackedInput分離後もReact 18/19で各39件、型チェック、コピー検証、本番ビルドが成功しました。AsyncTasks.tsxはTrackedInput.tsxを参照せず、単独コピー可能です。TrackedInputの利用側importは専用ファイルへ更新しています。
+
+registerAsyncTaskへの名称変更後もReact 18/19で各39件、型チェック、単独コピー検証、本番ビルドが成功しました。

@@ -85,11 +85,11 @@ it("null disables input, overall wait and action deadlines, including hook overr
   expect(vi.getTimerCount()).toBe(0);
 });
 
-it("legacy register can wait indefinitely through Provider/store defaults", async () => {
+it("legacy registerAsyncTask can wait indefinitely through Provider/store defaults", async () => {
   vi.useFakeTimers();
   const task = deferred<void>();
   const store = createTaskStore({ taskTimeoutMs: null, waitTimeoutMs: null });
-  store.register(task.promise, "legacy");
+  store.registerAsyncTask(task.promise, "legacy");
   let completed = false;
   const waiting = store.wait().then(() => {
     completed = true;
