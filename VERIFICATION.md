@@ -25,7 +25,7 @@ Playwright 1.58.2のFirefox用`fill()`は内部でcompositionイベントを発�
 
 テストでは、期限とnullによる無期限待機、取消後の遅延完了、背景処理、入力の世代切替、dirty確定、項目別エラー、動的項目の破棄、保存結果不明と照会、冪等性fake、最新値getter、IME合成イベント、保存snapshot、SSRを確認しています。無期限待機の1時間経過はfake timerで検証します。
 
-最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・46件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
+最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・48件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
 
 ## ローカル環境と別途必要な確認
 
@@ -72,3 +72,9 @@ Effectから参照するfail/prepareをuseCallbackで安定させて依存配列
 単体・結合・ブラウザーテストの各ケースに「確認する状況」と「期待する結果」を追記し、テスト名・グループ名も日本語へ揃えました。期限や自動blurのパラメーターによる違い、遅い結果の破棄、保存結果不明の回復条件、合成IME・fake adapterの検証範囲を説明しています。
 
 変更後もlint・整形チェック・46件のテストが成功し、ブラウザー12件の列挙を確認しました。TypeScriptの構文木を比較し、9ファイルのテスト本体がテスト名・コメントを除いて同一であることも確認しています。
+
+## 当初のblur・click要件の明示検証
+
+tests/AsyncTasks.test.tsxへ、非同期blurの処理中にclickが到着するケースを追加しました。clickより先にblurを開始する場合と、フォーカスが残ったclickから既定の自動blurを行う場合の2パターンです。
+
+StrictMode下で未確定の入力値を用意し、blurのPromiseを意図的に未完了に保ちます。click後も保存されずbusyを維持し、Promise完了とonCommitによるstate更新を経て、正規化後の値で1回だけ保存することを確認しました。イベント順序も検証しています。lint・整形・型チェック・全48件のテストが成功しました。

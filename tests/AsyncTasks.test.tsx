@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { Suspense, startTransition, useState } from "react";
+import { StrictMode, Suspense, startTransition, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AsyncTasksProvider,
@@ -665,4 +665,115 @@ it("1つのHookから登録と実行を行い更新後のstateを保存する", 
   expect(save).not.toHaveBeenCalled();
   await act(async () => resolve("new"));
   await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith("new"));
+});
+
+describe("元の要件: 非同期blurのstate更新を待ってclickの処理を実行する", () => {
+  // 確認する状況: 通常のクリックのようにblurが先に始まる場合と、click時点で入力にフォーカスが残る場合を比較します。
+  // blurの非同期処理は、テストから完了させるまで未完了に保ちます。表示中のstateはまだ未確定の文字列です。
+  // 期待する結果: clickが届いてもすぐには保存せず、blurの結果がonCommitでstateへ反映されてから、最新値で1回だけ保存します。
+  // 先行blurの場合は自動blurをfalseにして登録済み処理の待機を確認し、フォーカス残存の場合は既定の自動blurを確認します。
+  it.each([
+    { label: "blur開始後にclick", blurBeforeClick: true },
+    { label: "clickから既定の自動blur", blurBeforeClick: false },
+  ])(
+    "非同期blur完了後のstateでclickの保存処理を実行する（$label）",
+    async ({ blurBeforeClick }) => {
+      const normalization = deferred<string>();
+      const save = vi.fn();
+      const onError = vi.fn();
+      const events: string[] = [];
+
+      function Form() {
+        const [value, setValue] = useState("old");
+        const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(
+          () => {
+            events.push("save");
+            save(value);
+          },
+          { onError, blurActiveElement: blurBeforeClick ? false : undefined },
+        );
+        return (
+          <>
+            <input
+              aria-label="確定前の入力"
+              value={value}
+              onChange={(event) => setValue(event.currentTarget.value)}
+              onBlur={(event) => {
+                events.push("blur-start");
+                const input = event.currentTarget.value;
+                registerAsyncTask(
+                  "value",
+                  async () => {
+                    // 実際の通信に相当する待機。ここでは完了タイミングをテストから制御します。
+                    const normalized = await normalization.promise;
+                    events.push("blur-complete");
+                    return `${input.trim()}:${normalized}`;
+                  },
+                  {
+                    onCommit: (normalized) => {
+                      events.push("state-update");
+                      setValue(normalized);
+                    },
+                  },
+                );
+              }}
+            />
+            <button
+              onClick={() => {
+                events.push("click");
+                runAfterTasks();
+              }}
+            >
+              保存
+            </button>
+            <output data-testid="value">{value}</output>
+            <output data-testid="busy">{String(busy)}</output>
+          </>
+        );
+      }
+      render(
+        <StrictMode>
+          <AsyncTasksProvider>
+            <Form />
+          </AsyncTasksProvider>
+        </StrictMode>,
+      );
+      const input = screen.getByLabelText("確定前の入力");
+      fireEvent.change(input, { target: { value: " raw " } });
+      input.focus();
+
+      // jsdomのfireEvent.clickはフォーカスを移さないため、通常操作の先行blurは明示的に配送します。
+      if (blurBeforeClick)
+        act(() => {
+          input.blur();
+        });
+      fireEvent.click(screen.getByRole("button", { name: "保存" }));
+      await flush();
+
+      // 古いclosureのまま進む実装だと、ここで未確定値を保存してしまうため失敗します。
+      expect(save).not.toHaveBeenCalled();
+      expect(screen.getByTestId("value").textContent).toBe(" raw ");
+      expect(screen.getByTestId("busy").textContent).toBe("true");
+      expect(events).toEqual(
+        blurBeforeClick ? ["blur-start", "click"] : ["click", "blur-start"],
+      );
+
+      await act(async () => normalization.resolve("normalized"));
+
+      // Promiseの完了だけでなくReactのstate反映を経由し、保存側が更新後の値を読むことを確認します。
+      await waitFor(() =>
+        expect(save).toHaveBeenCalledExactlyOnceWith("raw:normalized"),
+      );
+      expect(screen.getByTestId("value").textContent).toBe("raw:normalized");
+      expect(events.slice(-3)).toEqual([
+        "blur-complete",
+        "state-update",
+        "save",
+      ]);
+      await waitFor(() =>
+        expect(screen.getByTestId("busy").textContent).toBe("false"),
+      );
+      expect(onError).not.toHaveBeenCalled();
+    },
+  );
 });
