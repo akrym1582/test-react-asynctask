@@ -43,10 +43,20 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 - 削除したAPIの使用例・移行用コードを残しません。説明・サンプル・テストを現在のAPIへ揃えます。
 - 利用者の画面に共通処理の内部実装を露出させません。
 
+## Lintと整形
+
+ESLintの設定は`eslint.config.js`、Prettierは`.prettierrc.json`です。変更後は`npm run format`で整形し、`npm run lint`と`npm run format:check`を実行します。React Hooksの呼び出し順と依存配列は、SSR用の`useCommitEffect`も含めて検証します。指摘を消すための一括ルール無効化は避け、必要な依存・型を修正してください。
+
+## テストの構成
+
+単体テストはsrcと同じ相対パス・名前を使い、tests/へ配置します（src/useAsyncField.ts → tests/useAsyncField.test.tsx）。将来srcにサブディレクトリを設ける場合も対応させます。複数部品を組み合わせる結合テストはtests/integration/へ配置し、実ブラウザーの結合テストはbrowser-tests/に置きます。ヘルパーはtests/helpers.ts等にまとめます。サンプルのためだけに空のテストファイルを作る必要はありません。既存の検証を移す際はテスト数・検証内容を維持してください。
+
 ## 検証
 
 ```sh
 npm ci
+npm run lint
+npm run format:check
 npm run typecheck
 npm test
 npm run check:copy

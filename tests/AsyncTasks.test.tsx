@@ -1,8 +1,4 @@
-import { useTaskField } from "../src/useAsyncField";
-import { useAsyncSubmit } from "../src/useAsyncSubmit";
 // @vitest-environment jsdom
-import { TrackedInput } from "../src/TrackedInput";
-import { StrictMode, Suspense, startTransition, useState } from "react";
 import {
   act,
   cleanup,
@@ -11,36 +7,71 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { Suspense, startTransition, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AsyncTasksProvider,
+  UncertainActionError,
   createTaskStore,
   useAsyncTasks,
   useLatestCommitted,
-  UncertainActionError,
+  type ActionContext,
 } from "../src/AsyncTasks";
-import { createMemorySaveAdapter } from "../src/exampleSaveAdapter";
-
+import { deferred, flush, never } from "./helpers";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  let reject!: (e: unknown) => void;
-  const promise = new Promise<T>((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
-}
-const never = () => new Promise<never>(() => {});
-const flush = async () => {
-  await act(async () => {
+describe("task store", () => {
+  it("waits for tasks added while waiting", async () => {
+    const store = createTaskStore();
+    const first = deferred<void>();
+    const second = deferred<void>();
+    store.registerAsyncTask("first", () => first.promise);
+    let finished = false;
+    const waiting = store.wait().then(() => {
+      finished = true;
+    });
+    store.registerAsyncTask("second", () => second.promise);
+    first.resolve();
     await Promise.resolve();
+    expect(finished).toBe(false);
+    second.resolve();
+    await waiting;
+    expect(finished).toBe(true);
   });
-};
-
+  it("retains errors until the same field succeeds", async () => {
+    const store = createTaskStore();
+    store.registerAsyncTask("name", () => Promise.reject(new Error("invalid")));
+    await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
+    await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
+    store.registerAsyncTask("name", () => Promise.resolve());
+    await expect(store.wait()).resolves.toBeUndefined();
+  });
+  it("locks actions within the scope and ignores stale releases", () => {
+    const store = createTaskStore();
+    const first = store.beginAction()!;
+    expect(store.beginAction()).toBeNull();
+    store.release(first);
+    const second = store.beginAction()!;
+    store.release(first);
+    expect(store.getSnapshot().busy).toBe(true);
+    store.release(second);
+    expect(store.getSnapshot().busy).toBe(false);
+  });
+});
+describe("replacement tasks", () => {
+  it("does not revive an old failure after a newer task with the same key succeeds", async () => {
+    const store = createTaskStore();
+    const old = deferred<void>();
+    store.registerAsyncTask("name", () => old.promise);
+    store.registerAsyncTask("name", () => Promise.resolve());
+    await Promise.resolve();
+    await Promise.resolve();
+    old.reject(new Error("obsolete"));
+    await expect(store.wait()).resolves.toBeUndefined();
+  });
+});
 describe("store deadlines and fields", () => {
   it("validates defaults and overrides", () => {
     for (const n of [0, -1, NaN, Infinity])
@@ -221,98 +252,6 @@ describe("store deadlines and fields", () => {
     log.mockRestore();
   });
 });
-
-describe("managed UI", () => {
-  function Form({
-    normalize,
-    onSave,
-  }: {
-    normalize: (v: string) => Promise<string>;
-    onSave: (v: string) => void;
-  }) {
-    const [value, setValue] = useState("");
-    const field = useTaskField("x");
-    const { runAfterTasks, busy } = useAsyncTasks(() => onSave(value), {
-      onError: () => {},
-    });
-    return (
-      <>
-        <TrackedInput
-          aria-label="value"
-          taskKey="x"
-          value={value}
-          normalize={normalize}
-          onCommit={setValue}
-          onChange={(e) => setValue(e.currentTarget.value)}
-        />
-        <button onClick={runAfterTasks} disabled={busy}>
-          save
-        </button>
-        <output>{field.phase}</output>
-      </>
-    );
-  }
-  it("flushes focused dirty input from runAfterTasks without requiring blur", async () => {
-    const d = deferred<string>();
-    const save = vi.fn();
-    render(
-      <StrictMode>
-        <AsyncTasksProvider>
-          <Form normalize={() => d.promise} onSave={save} />
-        </AsyncTasksProvider>
-      </StrictMode>,
-    );
-    fireEvent.change(screen.getByLabelText("value"), {
-      target: { value: "raw" },
-    });
-    fireEvent.click(screen.getByText("save"));
-    await act(async () => d.resolve("normalized"));
-    await waitFor(() =>
-      expect(save).toHaveBeenCalledExactlyOnceWith("normalized"),
-    );
-  });
-  it("shows field failure immediately, before runAfterTasks", async () => {
-    render(
-      <AsyncTasksProvider>
-        <Form
-          normalize={async () => {
-            throw Error("bad");
-          }}
-          onSave={vi.fn()}
-        />
-      </AsyncTasksProvider>,
-    );
-    const input = screen.getByLabelText("value");
-    fireEvent.change(input, { target: { value: "bad" } });
-    fireEvent.blur(input);
-    await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toBe("error"),
-    );
-  });
-  it("drops late writes after field and provider unmount", async () => {
-    const d = deferred<string>();
-    const commit = vi.fn();
-    const view = render(
-      <StrictMode>
-        <AsyncTasksProvider>
-          <TrackedInput
-            taskKey="x"
-            value=""
-            onChange={() => {}}
-            normalize={() => d.promise}
-            onCommit={commit}
-          />
-        </AsyncTasksProvider>
-      </StrictMode>,
-    );
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });
-    fireEvent.blur(screen.getByRole("textbox"));
-    view.unmount();
-    await act(async () => d.resolve("late"));
-    expect(commit).not.toHaveBeenCalled();
-  });
-});
-
 describe("actions and recovery", () => {
   function Action({
     action,
@@ -320,7 +259,7 @@ describe("actions and recovery", () => {
     waitMs = 10,
     actionMs = 10,
   }: {
-    action: (ctx: any) => Promise<void> | void;
+    action: (ctx: ActionContext) => Promise<void> | void;
     error: (e: unknown) => void;
     waitMs?: number;
     actionMs?: number;
@@ -400,18 +339,8 @@ describe("actions and recovery", () => {
     );
     expect(error).toHaveBeenCalledTimes(1);
   });
-  it("uses stable requestId with the fake idempotency contract", async () => {
-    const adapter = createMemorySaveAdapter<{ name: string }>();
-    const context = { signal: new AbortController().signal, requestId: "id" };
-    await adapter.save({ name: "x" }, context);
-    await adapter.save({ name: "x" }, context);
-    expect(adapter.getCount()).toBe(1);
-    expect(await adapter.lookup("id")).toBe("saved");
-    await expect(adapter.save({ name: "y" }, context)).rejects.toThrow();
-  });
 });
-
-describe("committed state and IME", () => {
+describe("committed state", () => {
   it("stable getter reads a newer commit but not a suspended render", async () => {
     let getter!: () => string;
     let set!: (v: string) => void;
@@ -438,84 +367,8 @@ describe("committed state and IME", () => {
     act(() => startTransition(() => set("suspend")));
     expect(getter()).toBe("new");
   });
-  it("blocks conversion Enter, permits next Enter and explicit click", () => {
-    const runAfterTasks = vi.fn();
-    function Form() {
-      return (
-        <form {...useAsyncSubmit(runAfterTasks)}>
-          <input />
-          <button>save</button>
-        </form>
-      );
-    }
-    const view = render(<Form />);
-    const input = screen.getByRole("textbox");
-    const form = view.container.querySelector("form")!;
-    fireEvent.compositionStart(input);
-    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
-    fireEvent.submit(form);
-    expect(runAfterTasks).not.toHaveBeenCalled();
-    fireEvent.compositionEnd(input);
-    fireEvent.submit(form);
-    expect(runAfterTasks).not.toHaveBeenCalled();
-    fireEvent.keyUp(input, { key: "Enter" });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.submit(form);
-    expect(runAfterTasks).toHaveBeenCalledTimes(1);
-    fireEvent.keyUp(input, { key: "Enter" });
-    fireEvent.compositionStart(input);
-    fireEvent.compositionEnd(input);
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.submit(form);
-    expect(runAfterTasks).toHaveBeenCalledTimes(1);
-    fireEvent.pointerDown(screen.getByText("save"));
-    fireEvent.submit(form);
-    expect(runAfterTasks).toHaveBeenCalledTimes(2);
-  });
 });
-
-describe("request timeout and snapshot contract", () => {
-  it("releases a timed-out wait, cancels managed input, and never saves late results", async () => {
-    vi.useFakeTimers();
-    const task = deferred<string>();
-    const save = vi.fn();
-    const error = vi.fn();
-    function Form() {
-      const [value, setValue] = useState("");
-      const { runAfterTasks, busy } = useAsyncTasks(
-        () => {
-          save(value);
-        },
-        { onError: error, waitTimeoutMs: 10 },
-      );
-      return (
-        <>
-          <TrackedInput
-            taskKey="x"
-            value={value}
-            onChange={(e) => setValue(e.currentTarget.value)}
-            normalize={() => task.promise}
-            onCommit={setValue}
-          />
-          <button onClick={runAfterTasks}>runAfterTasks</button>
-          <output>{String(busy)}</output>
-        </>
-      );
-    }
-    render(
-      <AsyncTasksProvider taskTimeoutMs={null}>
-        <Form />
-      </AsyncTasksProvider>,
-    );
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "raw" } });
-    fireEvent.click(screen.getByText("runAfterTasks"));
-    await act(async () => vi.advanceTimersByTimeAsync(10));
-    expect(error).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("status").textContent).toBe("false");
-    await act(async () => task.resolve("late"));
-    expect(save).not.toHaveBeenCalled();
-    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("raw");
-  });
+describe("snapshot and callback cleanup", () => {
   it("keeps the action snapshot while an explicit getter can read a later commit", async () => {
     const gate = deferred<void>();
     const result = vi.fn();
@@ -576,4 +429,190 @@ describe("request timeout and snapshot contract", () => {
     expect(action).toHaveBeenCalledTimes(2);
     log.mockRestore();
   });
+});
+it("registerAsyncTask can wait indefinitely through Provider/store defaults", async () => {
+  vi.useFakeTimers();
+  const task = deferred<void>();
+  const store = createTaskStore();
+  store.registerAsyncTask("input", () => task.promise);
+  let completed = false;
+  const waiting = store.wait().then(() => {
+    completed = true;
+  });
+  await vi.advanceTimersByTimeAsync(3600000);
+  expect(completed).toBe(false);
+  expect(vi.getTimerCount()).toBe(0);
+  task.resolve();
+  await waiting;
+  expect(completed).toBe(true);
+});
+it("registerAsyncTask timeoutMs null overrides a finite default", async () => {
+  vi.useFakeTimers();
+  const task = deferred<string>();
+  const store = createTaskStore({ taskTimeoutMs: 5 });
+  const handle = store.registerAsyncTask("x", () => task.promise, {
+    timeoutMs: null,
+  });
+  await vi.advanceTimersByTimeAsync(3600000);
+  expect(handle.getStatus()).toBe("pending");
+  task.resolve("done");
+  expect(await handle.result).toEqual({ status: "fulfilled", value: "done" });
+});
+it.each([undefined, true, false])(
+  "auto blur=%s runs before preparation and waits for registered state",
+  async (blurActiveElement) => {
+    let resolve!: (value: string) => void;
+    const task = new Promise<string>((yes) => {
+      resolve = yes;
+    });
+    const events: string[] = [];
+    const save = vi.fn();
+    const error = vi.fn();
+    function Form() {
+      const [value, setValue] = useState("old");
+      const { registerAsyncTask, runAfterTasks } = useAsyncTasks(
+        () => save(value),
+        {
+          blurActiveElement,
+          beforeWait: () => {
+            events.push("prepare");
+          },
+          onError: error,
+        },
+      );
+      return (
+        <>
+          <input
+            aria-label="value"
+            onBlur={() => {
+              events.push("blur");
+              registerAsyncTask("name", () => task, { onCommit: setValue });
+              runAfterTasks(); // blurから再入しても、同じ要求を重複実行しない
+            }}
+          />
+          <button onClick={runAfterTasks}>save</button>
+        </>
+      );
+    }
+    render(
+      <AsyncTasksProvider>
+        <Form />
+      </AsyncTasksProvider>,
+    );
+    const input = screen.getByLabelText("value");
+    input.focus();
+    // fireEvent.clickはフォーカスを変更しないため、Hook自身のblurを検証できます。
+    fireEvent.click(screen.getByText("save"));
+    if (blurActiveElement === false) {
+      expect(document.activeElement).toBe(input);
+      expect(events).toEqual(["prepare"]);
+      await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith("old"));
+    } else {
+      expect(document.activeElement).not.toBe(input);
+      expect(events).toEqual(["blur", "prepare"]);
+      expect(save).not.toHaveBeenCalled();
+      await act(async () => resolve("new"));
+      await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith("new"));
+    }
+    expect(error).not.toHaveBeenCalled();
+  },
+);
+it("reports blur failures without preparation or saving and releases busy", async () => {
+  const failure = new Error("blur failed");
+  const onError = vi.fn();
+  const beforeWait = vi.fn();
+  const save = vi.fn();
+  function Form() {
+    const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(save, {
+      onError,
+      beforeWait,
+    });
+    return (
+      <>
+        <input />
+        <button onClick={runAfterTasks}>save</button>
+        <output>{`${busy}/${isResultUnknown}`}</output>
+      </>
+    );
+  }
+  render(
+    <AsyncTasksProvider>
+      <Form />
+    </AsyncTasksProvider>,
+  );
+  const input = screen.getByRole("textbox");
+  input.focus();
+  const blur = vi.spyOn(input, "blur").mockImplementation(() => {
+    throw failure;
+  });
+  try {
+    fireEvent.click(screen.getByText("save"));
+    expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(beforeWait).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toBe("false/false");
+  } finally {
+    blur.mockRestore();
+  }
+});
+it("shares busy and unknown result with a registration-only consumer", async () => {
+  let reject!: (reason: unknown) => void;
+  const saving = new Promise<void>((_, no) => {
+    reject = no;
+  });
+  function Observer() {
+    const { busy, isResultUnknown } = useAsyncTasks();
+    return (
+      <output>{busy ? "busy" : isResultUnknown ? "unknown" : "idle"}</output>
+    );
+  }
+  function Form() {
+    const { runAfterTasks } = useAsyncTasks(() => saving, { onError: vi.fn() });
+    return <button onClick={runAfterTasks}>save</button>;
+  }
+  render(
+    <AsyncTasksProvider>
+      <Observer />
+      <Form />
+    </AsyncTasksProvider>,
+  );
+  fireEvent.click(screen.getByText("save"));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe("busy"),
+  );
+  await act(async () => reject(new UncertainActionError()));
+  expect(screen.getByRole("status").textContent).toBe("unknown");
+});
+it("registers and saves the updated state from the same hook", async () => {
+  let resolve!: (value: string) => void;
+  const input = new Promise<string>((yes) => {
+    resolve = yes;
+  });
+  const save = vi.fn();
+  function Form() {
+    const [value, setValue] = useState("old");
+    const { registerAsyncTask, runAfterTasks } = useAsyncTasks(
+      () => save(value),
+      { onError: vi.fn() },
+    );
+    return (
+      <button
+        onClick={() => {
+          registerAsyncTask("name", () => input, { onCommit: setValue });
+          runAfterTasks();
+        }}
+      >
+        save
+      </button>
+    );
+  }
+  render(
+    <AsyncTasksProvider>
+      <Form />
+    </AsyncTasksProvider>,
+  );
+  fireEvent.click(screen.getByText("save"));
+  expect(save).not.toHaveBeenCalled();
+  await act(async () => resolve("new"));
+  await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith("new"));
 });

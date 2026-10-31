@@ -30,12 +30,7 @@ const useCommitEffect =
 /** ミリ秒。nullは期限なし。0/負数/NaN/Infinityは指定できません。 */
 export type Timeout = number | null;
 export type ErrorKind =
-  | "task"
-  | "validation"
-  | "timeout"
-  | "cancelled"
-  | "action"
-  | "uncertain";
+  "task" | "validation" | "timeout" | "cancelled" | "action" | "uncertain";
 /**
  * 共通処理のエラー。kindで種類を、detailsで項目や要求を特定できます。
  * @example
@@ -101,12 +96,7 @@ export type TasksConfig = {
   onTaskError?: (error: AsyncTaskError) => void;
 };
 export type ActionPhase =
-  | "idle"
-  | "preparing"
-  | "waiting"
-  | "ready"
-  | "executing"
-  | "uncertain";
+  "idle" | "preparing" | "waiting" | "ready" | "executing" | "uncertain";
 export type ActionContext = {
   /** 保存期限切れ・Scope破棄等の取消要求。fetch等へ渡します。サーバーの処理停止は保証しません。 */
   signal: AbortSignal;
@@ -770,15 +760,18 @@ function useTaskAction(
   // stateを1回更新し、その番号を持つ新しいレンダーでのみactionを起動します。
   // refの値だけを変えて古いEffectから起動すると、古いstateを読んでしまいます。
   const [revision, setRevision] = useState(0);
-  const fail = (current: Request, error: unknown) => {
-    if (!current.active || current.notified) return;
-    current.notified = true;
-    try {
-      getOptions().onError(error);
-    } catch (cause) {
-      console.error(cause);
-    }
-  };
+  const fail = useCallback(
+    (current: Request, error: unknown) => {
+      if (!current.active || current.notified) return;
+      current.notified = true;
+      try {
+        getOptions().onError(error);
+      } catch (cause) {
+        console.error(cause);
+      }
+    },
+    [getOptions],
+  );
   useCommitEffect(
     () => () => {
       const current = pending.current;
@@ -796,27 +789,30 @@ function useTaskAction(
     [store],
   );
   // ここではactionを呼びません。完了を次のレンダーへ渡すことが重要です。
-  function prepare(current: Request) {
-    void store
-      .wait({ signal: current.owner.controller.signal, timeoutMs: null })
-      .then(
-        () => {
-          if (!current.active || pending.current !== current) return;
-          current.tasks = store.getRevision();
-          current.revision = ++sequence.current;
-          store.setPhase(current.owner, "ready");
-          setRevision(current.revision);
-        },
-        (error) => {
-          if (!current.active || pending.current !== current) return;
-          clearTimeout(current.timer);
-          fail(current, error);
-          current.active = false;
-          pending.current = null;
-          store.release(current.owner);
-        },
-      );
-  }
+  const prepare = useCallback(
+    (current: Request) => {
+      void store
+        .wait({ signal: current.owner.controller.signal, timeoutMs: null })
+        .then(
+          () => {
+            if (!current.active || pending.current !== current) return;
+            current.tasks = store.getRevision();
+            current.revision = ++sequence.current;
+            store.setPhase(current.owner, "ready");
+            setRevision(current.revision);
+          },
+          (error) => {
+            if (!current.active || pending.current !== current) return;
+            clearTimeout(current.timer);
+            fail(current, error);
+            current.active = false;
+            pending.current = null;
+            store.release(current.owner);
+          },
+        );
+    },
+    [store, fail],
+  );
   function runAfterTasks() {
     if (!action) return;
     const owner = store.beginAction();
@@ -924,6 +920,6 @@ function useTaskAction(
         store.release(current.owner);
       }
     })();
-  }, [revision, action, actionTimeout, store]);
+  }, [revision, action, actionTimeout, store, fail, prepare]);
   return { runAfterTasks, ...snapshot, reconcile: store.reconcile };
 }

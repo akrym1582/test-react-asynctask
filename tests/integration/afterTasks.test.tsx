@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { StrictMode, useLayoutEffect, useRef, useState } from "react";
 import {
   act,
   cleanup,
@@ -8,13 +7,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { StrictMode, useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  createTaskStore,
-  AsyncTasksProvider,
-  useAsyncTasks,
-} from "../src/AsyncTasks";
-import { ExampleForm } from "../src/ExampleForm";
+import { AsyncTasksProvider, useAsyncTasks } from "../../src/AsyncTasks";
+import { ExampleForm } from "../../src/ExampleForm";
 
 afterEach(cleanup);
 function deferred<T>() {
@@ -26,45 +22,6 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-
-describe("task store", () => {
-  it("waits for tasks added while waiting", async () => {
-    const store = createTaskStore();
-    const first = deferred<void>();
-    const second = deferred<void>();
-    store.registerAsyncTask("first", () => first.promise);
-    let finished = false;
-    const waiting = store.wait().then(() => {
-      finished = true;
-    });
-    store.registerAsyncTask("second", () => second.promise);
-    first.resolve();
-    await Promise.resolve();
-    expect(finished).toBe(false);
-    second.resolve();
-    await waiting;
-    expect(finished).toBe(true);
-  });
-  it("retains errors until the same field succeeds", async () => {
-    const store = createTaskStore();
-    store.registerAsyncTask("name", () => Promise.reject(new Error("invalid")));
-    await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
-    await expect(store.wait()).rejects.toBeInstanceOf(AggregateError);
-    store.registerAsyncTask("name", () => Promise.resolve());
-    await expect(store.wait()).resolves.toBeUndefined();
-  });
-  it("locks actions within the scope and ignores stale releases", () => {
-    const store = createTaskStore();
-    const first = store.beginAction()!;
-    expect(store.beginAction()).toBeNull();
-    store.release(first);
-    const second = store.beginAction()!;
-    store.release(first);
-    expect(store.getSnapshot().busy).toBe(true);
-    store.release(second);
-    expect(store.getSnapshot().busy).toBe(false);
-  });
-});
 
 function Harness({
   task,
@@ -197,17 +154,6 @@ describe("useAsyncTasks", () => {
 });
 
 describe("additional edge cases", () => {
-  it("does not revive an old failure after a newer task with the same key succeeds", async () => {
-    const store = createTaskStore();
-    const old = deferred<void>();
-    store.registerAsyncTask("name", () => old.promise);
-    store.registerAsyncTask("name", () => Promise.resolve());
-    await Promise.resolve();
-    await Promise.resolve();
-    old.reject(new Error("obsolete"));
-    await expect(store.wait()).resolves.toBeUndefined();
-  });
-
   it("waits again when a layout effect registers another input task before execution", async () => {
     const first = deferred<string>();
     const second = deferred<string>();

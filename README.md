@@ -248,6 +248,8 @@ window.open/clipboard/file pickerなどユーザー操作が必要なAPIは遅�
 
 ```sh
 npm ci
+npm run lint
+npm run format:check
 npm run typecheck
 npm test
 npm run check:copy
@@ -280,3 +282,28 @@ const { runAfterTasks } = useAsyncTasks((context) => save(values, context), {
 ```
 
 対象を限定する場合は自動blurをfalseにし、beforeWaitで対象inputだけをblurできます。useAsyncFieldはfalseでもdirty入力を確定します。blur()が非同期ハンドラー自体をawaitするわけではなく、Contextへ登録されたタスクの完了を待ちます。
+
+## Lintと整形
+
+```sh
+npm run lint          # TypeScript・React Hooks・JavaScriptの検査（警告も失敗扱い）
+npm run lint:fix      # ESLintで自動修正できる指摘を修正
+npm run format       # ソース・設定・MarkdownをPrettierで整形
+npm run format:check # 整形済みかを確認（ファイルは変更しない）
+```
+
+ESLintはflat configの`eslint.config.js`、Prettierは`.prettierrc.json`で設定します。整形ルールはPrettierへ集約し、ESLintとの競合を避けます。生成物や一時コピーは対象から除外します。CIではReact 18/19の両ジョブでlintと整形チェックも実行します。
+
+## テストの配置
+
+単体テストはsrcの相対パスとファイル名に対応させます。例えばsrc/AsyncTasks.tsxのテストはtests/AsyncTasks.test.tsxです。srcにサブディレクトリを追加した場合も同じ階層を使います。
+
+| 実装                      | 単体テスト                       |
+| ------------------------- | -------------------------------- |
+| src/AsyncTasks.tsx        | tests/AsyncTasks.test.tsx        |
+| src/useAsyncField.ts      | tests/useAsyncField.test.tsx     |
+| src/TrackedInput.tsx      | tests/TrackedInput.test.tsx      |
+| src/useAsyncSubmit.ts     | tests/useAsyncSubmit.test.tsx    |
+| src/exampleSaveAdapter.ts | tests/exampleSaveAdapter.test.ts |
+
+フォームや複数部品の連携、SSRなどの結合テストはtests/integration/に配置します。例示コンポーネントは結合テストから検証します。tests/helpers.tsはPromiseの完了タイミングなどを制御するテスト用ヘルパーです。browser-tests/は実ブラウザーでの結合テストとして別配置を維持します。npm testで単体・結合の両方を実行します。

@@ -1,6 +1,4 @@
-import { useAsyncField } from "../src/useAsyncField";
 // @vitest-environment jsdom
-import { StrictMode, useState } from "react";
 import {
   act,
   cleanup,
@@ -9,25 +7,15 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { StrictMode, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import {
-  AsyncTasksProvider,
-  createTaskStore,
-  useAsyncTasks,
-} from "../src/AsyncTasks";
-
+import { AsyncTasksProvider, useAsyncTasks } from "../src/AsyncTasks";
+import { useAsyncField } from "../src/useAsyncField";
+import { deferred } from "./helpers";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
 it.each([false, true])(
   "waits indefinitely with default deadlines or explicit null overrides (override=%s)",
   async (override) => {
@@ -97,37 +85,6 @@ it.each([false, true])(
     expect(vi.getTimerCount()).toBe(0);
   },
 );
-
-it("registerAsyncTask can wait indefinitely through Provider/store defaults", async () => {
-  vi.useFakeTimers();
-  const task = deferred<void>();
-  const store = createTaskStore();
-  store.registerAsyncTask("input", () => task.promise);
-  let completed = false;
-  const waiting = store.wait().then(() => {
-    completed = true;
-  });
-  await vi.advanceTimersByTimeAsync(3600000);
-  expect(completed).toBe(false);
-  expect(vi.getTimerCount()).toBe(0);
-  task.resolve();
-  await waiting;
-  expect(completed).toBe(true);
-});
-
-it("registerAsyncTask timeoutMs null overrides a finite default", async () => {
-  vi.useFakeTimers();
-  const task = deferred<string>();
-  const store = createTaskStore({ taskTimeoutMs: 5 });
-  const handle = store.registerAsyncTask("x", () => task.promise, {
-    timeoutMs: null,
-  });
-  await vi.advanceTimersByTimeAsync(3600000);
-  expect(handle.getStatus()).toBe("pending");
-  task.resolve("done");
-  expect(await handle.result).toEqual({ status: "fulfilled", value: "done" });
-});
-
 it("a native input ignores a previous edit even before the next blur", async () => {
   const old = deferred<string>();
   const current = deferred<string>();

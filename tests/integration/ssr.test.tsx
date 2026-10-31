@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { TrackedInput } from "../src/TrackedInput";
+import { TrackedInput } from "../../src/TrackedInput";
 import { renderToString } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import {
   AsyncTasksProvider,
   useAsyncTasks,
   useLatestCommitted,
-} from "../src/AsyncTasks";
+} from "../../src/AsyncTasks";
 it("renders on the server without accessing window/document or starting actions", () => {
   const action = vi.fn();
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
