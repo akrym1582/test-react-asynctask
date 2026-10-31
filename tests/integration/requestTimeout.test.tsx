@@ -16,7 +16,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 // 確認する状況: TrackedInputの確定が終わらないまま総待機期限10msを超え、その後に元処理を成功させます。
-// 期待する結果: エラーを1回通知してbusyを解除します。遅い結果でも保存は始まらず、表示中の入力値も上書きしません。
+// 期待する結果: エラーを1回通知してisRunningを解除します。遅い結果でも保存は始まらず、表示中の入力値も上書きしません。
 it("入力の総待機期限で要求を解除し遅い結果から保存を開始しない", async () => {
   vi.useFakeTimers();
   const task = deferred<string>();
@@ -24,7 +24,7 @@ it("入力の総待機期限で要求を解除し遅い結果から保存を開�
   const error = vi.fn();
   function Form() {
     const [value, setValue] = useState("");
-    const { runAfterTasks, busy } = useAsyncTasks(
+    const { runAfterTasks, isRunning } = useAsyncTasks(
       () => {
         save(value);
       },
@@ -40,7 +40,7 @@ it("入力の総待機期限で要求を解除し遅い結果から保存を開�
           onCommit={setValue}
         />
         <button onClick={runAfterTasks}>runAfterTasks</button>
-        <output>{String(busy)}</output>
+        <output>{String(isRunning)}</output>
       </>
     );
   }

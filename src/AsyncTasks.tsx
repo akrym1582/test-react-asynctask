@@ -106,17 +106,17 @@ export type ActionContext = {
 /** 同じProvider内のすべての利用箇所が購読する、読み取り専用の実行状態です。 */
 export type AsyncTasksSnapshot = Readonly<{
   /** 保存要求を受け付けてから、入力待機・保存処理が終了するまでtrue。入力タスク単独の実行は含みません。 */
-  busy: boolean;
+  isRunning: boolean;
   /** 未完了の登録タスクが1件以上あればtrue。背景処理も含み、保存actionやdirty入力だけの状態は含みません。 */
-  taskBusy: boolean;
+  hasPendingTasks: boolean;
   /** idle=要求なし、preparing=準備中、waiting=入力待機、ready=再レンダー待ち、executing=保存中。 */
   phase: ActionPhase;
   /** 現在の保存要求のID。入力タスクのUUIDとは別で、要求がなければnull。 */
   requestId: string | null;
 }>;
 const idleAction: AsyncTasksSnapshot = Object.freeze({
-  busy: false,
-  taskBusy: false,
+  isRunning: false,
+  hasPendingTasks: false,
   phase: "idle" as ActionPhase,
   requestId: null as string | null,
 });
@@ -202,13 +202,13 @@ export function createTaskStore(config: TasksConfig = {}) {
   const publishAction = () => {
     actionSnapshot = owner
       ? {
-          busy: true,
-          taskBusy: tasks.size > 0,
+          isRunning: true,
+          hasPendingTasks: tasks.size > 0,
           phase: owner.phase,
           requestId: owner.id,
         }
       : tasks.size > 0
-        ? { ...idleAction, taskBusy: true }
+        ? { ...idleAction, hasPendingTasks: true }
         : idleAction;
     notify();
   };
@@ -432,16 +432,16 @@ export function createTaskStore(config: TasksConfig = {}) {
     },
     getSnapshot: () => actionSnapshot,
     /** 待機・保存処理中。登録した入力タスクだけが動いている間はfalseです。 */
-    get busy() {
-      return actionSnapshot.busy;
+    get isRunning() {
+      return actionSnapshot.isRunning;
     },
     /**
      * 未完了の登録タスクが1件でもあればtrue。blocking:falseの背景処理も含みます。
      * 未確定入力(dirty)や保存actionだけの実行は含みません。
      * 取消・期限切れは管理対象から外れるため、元のPromiseが続いていてもfalseへ戻ります。
      */
-    get taskBusy() {
-      return actionSnapshot.taskBusy;
+    get hasPendingTasks() {
+      return actionSnapshot.hasPendingTasks;
     },
     beginAction(): ActionOwner | null {
       if (owner || disposed) return null;
@@ -492,7 +492,7 @@ export type TaskActionResult = AsyncTasksSnapshot & {
   /**
    * イベント用の実行予約関数。自動blurとbeforeWaitを行い、タスク完了・state反映後にactionを呼びます。
    * 同じProviderの実行中の重複要求は受け付けません。戻り値はvoidで、awaitでは完了を待てません。
-   * @example <button onClick={runAfterTasks} disabled={busy}>保存</button>
+   * @example <button onClick={runAfterTasks} disabled={isRunning}>保存</button>
    */
   runAfterTasks: () => void;
 };
@@ -516,17 +516,17 @@ export function AsyncTasksProvider({
 }
 /**
  * タスク登録・待機後の実行・共有状態を取得する公開Hookです。
- * 引数なしでは登録とbusy/taskBusyの参照に利用できます。
+ * 引数なしでは登録とisRunning/hasPendingTasksの参照に利用できます。
  * actionとoptionsを渡すとrunAfterTasksも取得できます。保存処理はHookの引数に定義し、
  * onClick={runAfterTasks}で実行します。actionは待機後の新しいレンダーのstateを参照します。
- * busyは待機/保存中、taskBusyは未完了の登録タスクがある状態です。保存失敗はonErrorへ通知します。
+ * isRunningは待機/保存中、hasPendingTasksは未完了の登録タスクがある状態です。保存失敗はonErrorへ通知します。
  * runAfterTasksはvoid関数です。保存後の処理はaction内へ書きます。
  * Promiseの全自動検出は行いません。
  * @example
- * const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(
+ * const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
  *   context => save(values, context), { onError: console.error },
  * );
- * return <button onClick={runAfterTasks} disabled={busy}>保存</button>;
+ * return <button onClick={runAfterTasks} disabled={isRunning}>保存</button>;
  * @example
  * const tasks = useAsyncTasks();
  * tasks.registerAsyncTask(({ signal }) => fetch("/api/suggestions", { signal }), {
@@ -592,13 +592,13 @@ export type AsyncTasksOptions = {
   /**
    * 任意の同期準備処理。自動blurの後、入力タスクの待機開始前に呼びます。
    * エラー表示のクリアや追加タスクの登録に使います。async関数は指定しないでください。
-   * この処理でthrowするとonErrorへ通知し、保存を開始せずbusyを解除します。
+   * この処理でthrowするとonErrorへ通知し、保存を開始せずisRunningを解除します。
    */
   beforeWait?: () => void;
   /**
    * 入力確定を待つ総期限（ミリ秒）。runAfterTasks受付時から計測します。
    * 省略時はProviderのwaitTimeoutMs（既定null・無期限）、nullなら無期限です。
-   * 超過時は保存を開始せず入力処理へ取消を要求し、busyを解除します。
+   * 超過時は保存を開始せず入力処理へ取消を要求し、isRunningを解除します。
    * JavaScriptの同期処理を途中で強制終了することはできません。
    */
   waitTimeoutMs?: Timeout;
@@ -606,7 +606,7 @@ export type AsyncTasksOptions = {
    * action開始から保存結果を待つ期限（ミリ秒）。入力待機の時間は含みません。
    * 省略時はProviderのactionTimeoutMs（既定null・無期限）、nullなら無期限です。
    * 超過時はsignalで中断を要求し、onErrorへtimeoutを通知します。
-   * 元のactionが実際に完了・失敗するまでbusyを維持します。signalを無視する処理は強制停止できません。
+   * 元のactionが実際に完了・失敗するまでisRunningを維持します。signalを無視する処理は強制停止できません。
    * 保存結果の確認や再送判断はAPI呼び出し側で行ってください。共通側の自動再送はありません。
    */
   actionTimeoutMs?: Timeout;
@@ -614,14 +614,14 @@ export type AsyncTasksOptions = {
 /**
  * タスク完了と再レンダーを経由してactionを実行します。
  * runAfterTasksはイベント用のvoid関数で、await runAfterTasks()では保存完了を待てません。
- * busyは待機/保存中、taskBusyは未完了の登録タスクがある状態です。保存失敗はonErrorへ通知します。
+ * isRunningは待機/保存中、hasPendingTasksは未完了の登録タスクがある状態です。保存失敗はonErrorへ通知します。
  * action内のawait後に同じclosureのstateが自動更新されるわけではありません。
  * @example
- * const { runAfterTasks, busy } = useAsyncTasks(async ({ signal, requestId }) => {
+ * const { runAfterTasks, isRunning } = useAsyncTasks(async ({ signal, requestId }) => {
  *   await save(values, { signal, requestId });
  *   navigate("/complete"); // 保存成功後の処理もこの中へ
  * }, { onError: error => setError(String(error)) });
- * return <button onClick={runAfterTasks} disabled={busy}>保存</button>;
+ * return <button onClick={runAfterTasks} disabled={isRunning}>保存</button>;
  */
 function useTaskAction(
   store: TaskStore,
@@ -780,7 +780,7 @@ function useTaskAction(
     if (actionTimeout !== null)
       current.timer = setTimeout(() => {
         if (!current.active) return;
-        // 中断を要求し通知します。元actionが終了するまでbusyと実行ロックは維持します。
+        // 中断を要求し通知します。元actionが終了するまでisRunningと実行ロックは維持します。
         current.owner.controller.abort();
         fail(
           current,
@@ -810,10 +810,10 @@ function useTaskAction(
   return {
     /** 保存を予約します。登録タスクとstate反映を待ってから、最新レンダーのactionを1回実行します。 */
     runAfterTasks,
-    /** 保存要求の待機・実行中。保存ボタンのdisabledにはbusyを使います。 */
-    busy: snapshot.busy,
+    /** 保存要求の待機・実行中。保存ボタンのdisabledにはisRunningを使います。 */
+    isRunning: snapshot.isRunning,
     /** 登録タスクの処理中表示用。blur直後のclickを妨げないよう、保存ボタンのdisabledには使いません。 */
-    taskBusy: snapshot.taskBusy,
+    hasPendingTasks: snapshot.hasPendingTasks,
     /** 準備・入力待機・保存実行など、現在の段階を表示・診断するための値です。 */
     phase: snapshot.phase,
     /** この保存要求を識別するID。ログや必要に応じたAPI側の重複排除へ渡します。要求がなければnullです。 */

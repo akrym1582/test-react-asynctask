@@ -27,7 +27,7 @@ import { useLatestCommitted } from "./useLatestCommitted";
 
 引数なしの`useAsyncTasks()`はタスク登録と共有状態の参照に使えます。保存処理と`onError`を渡すと、`runAfterTasks`も取得できます。保存処理はHookの引数として定義し、クリック時には`onClick={runAfterTasks}`で実行します。
 
-`busy`は保存要求後の入力待機・保存中、`taskBusy`は登録タスクの実行中を示します。保存失敗はonErrorへ通知し、処理終了時にbusyを解除します。APIのエラー表示や再送判断は呼び出し側で扱います。
+`isRunning`は保存要求後の入力待機・保存中、`hasPendingTasks`は登録タスクの実行中を示します。保存失敗はonErrorへ通知し、処理終了時にisRunningを解除します。APIのエラー表示や再送判断は呼び出し側で扱います。
 
 ## 無期限で待つ設定
 
@@ -41,21 +41,21 @@ import { useLatestCommitted } from "./useLatestCommitted";
 
 Providerの期限は省略時null（無期限）です。Hookやタスクの期限を省略（undefined）するとProviderの設定を継承し、nullを指定するとProviderが有限期限でも無期限に上書きします。`Infinity`や0は使いません。`useAsyncTasks`の`waitTimeoutMs`/`actionTimeoutMs`、`registerAsyncTask`/`useAsyncField`の`timeoutMs`で個別上書きできます。外部APIやサーバー自体の期限が延びるわけではありません。
 
-未完了の処理がある間はbusyが継続します。`null`は期限だけを無効化し、cancelやunmount時の後始末は無効化しません。
+未完了の処理がある間はisRunningが継続します。`null`は期限だけを無効化し、cancelやunmount時の後始末は無効化しません。
 
 ## 中心ファイルだけで使う
 
 通常のinputのblurからタスクを登録できます。`src/PlainBlurExample.tsx`に、Providerとエラー表示を含めた例があります。HookはProviderの子コンポーネントで使います。
 
 ```tsx
-const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(async context => {
+const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(async context => {
   await save({ name }, context);
 }, {
   blurActiveElement: true, // 省略時もtrue。onBlurからタスクを登録させる
   onError: error => setError(String(error)),
 });
 
-<input value={name} readOnly={busy}
+<input value={name} readOnly={isRunning}
   onChange={event => setName(event.currentTarget.value)}
   onBlur={event => {
     const input = event.currentTarget.value; // イベントの値は同期的に取得
@@ -64,7 +64,7 @@ const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(async context =
     });
   }}
 />
-<button type="button" onClick={runAfterTasks} disabled={busy}>保存</button>
+<button type="button" onClick={runAfterTasks} disabled={isRunning}>保存</button>
 ```
 
 非同期関数は結果を返し、state更新は`onCommit`へ分けます。key省略時は登録ごとにUUIDを自動生成し、すべての処理を独立して待ちます。必要な場合だけoptions.keyで固定keyを指定でき、同じkeyの再登録時には古い結果を破棄します。次のblurより前の再編集でも古い結果を破棄したい場合は、次の入力Hookを追加します。
@@ -82,11 +82,11 @@ const nameField = useAsyncField({
   normalize: (input, { signal }) => normalizeName(input, { signal }),
   onCommit: setName,
 });
-const { runAfterTasks, busy } = useAsyncTasks(async context => {
+const { runAfterTasks, isRunning } = useAsyncTasks(async context => {
   await save({ name }, context);
 }, { onError: error => console.error(error) });
 
-<input value={name} readOnly={busy}
+<input value={name} readOnly={isRunning}
   onChange={event => {
     const value = event.currentTarget.value;
     nameField.change(value); // 編集時点で古い結果を無効化
@@ -94,7 +94,7 @@ const { runAfterTasks, busy } = useAsyncTasks(async context => {
   }}
   onBlur={nameField.commit}
 />
-<button type="button" onClick={runAfterTasks} disabled={busy}>保存</button>
+<button type="button" onClick={runAfterTasks} disabled={isRunning}>保存</button>
 ```
 
 runAfterTasks時にもdirty項目を確定するため、blurが発生しなくても保存前に確定できます。`change`はstateを変更しないのでsetterも呼んでください。`phase`/`error`で項目状態を参照でき、別コンポーネントからは`useTaskField("name")`でも購読できます。
@@ -119,16 +119,16 @@ import { TrackedInput } from "./TrackedInput";
 
 ## API
 
-| API                                                  | import元           | 用途                                              |
-| ---------------------------------------------------- | ------------------ | ------------------------------------------------- |
-| AsyncTasksProvider                                   | AsyncTasks         | フォーム単位の管理範囲・初期設定                  |
-| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks         | signalを準備してから処理を開始                    |
-| useAsyncTasks(action, options)                       | AsyncTasks         | runAfterTasks/busy/taskBusy/phase/requestIdを取得 |
-| useLatestCommitted(value)                            | useLatestCommitted | 最新commit済み値を返す安定したgetter              |
-| useAsyncField(options)                               | useAsyncField      | 入力確定・世代管理                                |
-| useTaskField(key)                                    | useAsyncField      | 入力のclean/dirty/pending/error状態を購読         |
-| TrackedInput                                         | TrackedInput       | 入力Hookを組み込んだUI                            |
-| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit     | IME対応のformイベント群                           |
+| API                                                  | import元           | 用途                                                          |
+| ---------------------------------------------------- | ------------------ | ------------------------------------------------------------- |
+| AsyncTasksProvider                                   | AsyncTasks         | フォーム単位の管理範囲・初期設定                              |
+| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks         | signalを準備してから処理を開始                                |
+| useAsyncTasks(action, options)                       | AsyncTasks         | runAfterTasks/isRunning/hasPendingTasks/phase/requestIdを取得 |
+| useLatestCommitted(value)                            | useLatestCommitted | 最新commit済み値を返す安定したgetter                          |
+| useAsyncField(options)                               | useAsyncField      | 入力確定・世代管理                                            |
+| useTaskField(key)                                    | useAsyncField      | 入力のclean/dirty/pending/error状態を購読                     |
+| TrackedInput                                         | TrackedInput       | 入力Hookを組み込んだUI                                        |
+| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit     | IME対応のformイベント群                                       |
 
 タスク登録は`registerAsyncTask(factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
 
@@ -179,15 +179,15 @@ useAsyncTasksはタスク完了後にstateを更新し、対応する新しい�
 
 入力タスク・総待機・保存の期限はすべて省略時null（無期限）です。Providerで設定し、registerAsyncTask/useAsyncFieldのtimeoutMs、useAsyncTasksのwaitTimeoutMs/actionTimeoutMsで上書きできます。0・負数・NaN・Infinityは設定エラーです。
 
-入力タスクや総待機が期限切れになった場合、onErrorへ通知して保存を開始しません。保存actionの期限切れではsignalで中断を要求してonErrorへtimeoutを通知し、元のactionが実際に終了するまでbusyを維持します。中断要求は通信先の対応が必要です。
+入力タスクや総待機が期限切れになった場合、onErrorへ通知して保存を開始しません。保存actionの期限切れではsignalで中断を要求してonErrorへtimeoutを通知し、元のactionが実際に終了するまでisRunningを維持します。中断要求は通信先の対応が必要です。
 
-APIがthrow/rejectした場合、共通側はonErrorへ通知し、処理終了後にbusyを解除します。API側で処理済みのエラーはaction内でcatchして終了すれば、共通側からの通知は行いません。結果照会や再送判断はAPI呼び出し側へ任せます。共通側の自動再送はありません。
+APIがthrow/rejectした場合、共通側はonErrorへ通知し、処理終了後にisRunningを解除します。API側で処理済みのエラーはaction内でcatchして終了すれば、共通側からの通知は行いません。結果照会や再送判断はAPI呼び出し側へ任せます。共通側の自動再送はありません。
 
 ```tsx
-const { registerAsyncTask, runAfterTasks, busy, taskBusy } = useAsyncTasks(
-  (context) => saveApi(values, context),
-  { onError: (error) => setError(String(error)) },
-);
+const { registerAsyncTask, runAfterTasks, isRunning, hasPendingTasks } =
+  useAsyncTasks((context) => saveApi(values, context), {
+    onError: (error) => setError(String(error)),
+  });
 ```
 
 requestIdは保存要求ごとのIDとして通信層へ渡せます。ログ記録や必要に応じたAPI側の重複排除に利用してください。
@@ -229,7 +229,7 @@ compositionイベント、isComposing、互換の229、Enterの押下/解放を�
 
 useAsyncFieldの入力はrunAfterTasks時にもdirtyを確定するため、blurが発生しなくても動作します。通常のonBlurからタスクを登録する場合も、既定の自動blurで登録が始まります。onBlur内では最初のawaitより前にregisterAsyncTaskを呼んでください。
 
-preventDefaultは元のイベント中に行います。SyntheticEventをactionへ渡しません。blur開始時に保存ボタンを消したりdisabled化するとclick自体が届かないことがあるため、runAfterTasks受付後にbusyで制御します。
+preventDefaultは元のイベント中に行います。SyntheticEventをactionへ渡しません。blur開始時に保存ボタンを消したりdisabled化するとclick自体が届かないことがあるため、runAfterTasks受付後にisRunningで制御します。
 
 window.open/clipboard/file pickerなどユーザー操作が必要なAPIは遅延actionで保証できません。たとえば新しいウィンドウが必要なら、元のクリック内で`const popup = window.open('about:blank')`を実行し、戻り値nullも処理したうえで、その後の通信をrunAfterTasksへ渡します。ブラウザーの権限要件を回避する仕組みではありません。
 
@@ -239,9 +239,9 @@ window.open/clipboard/file pickerなどユーザー操作が必要なAPIは遅�
 - 必要なstate更新は通常優先度の確定処理で行います。startTransition/Suspense/Effectによる任意の将来の更新をすべて待つ保証はありません。
 - normalize/onCommit、beforeWait、エラーコールバックの契約を守ってください。onCommit/beforeWaitにasync関数を渡す誤用は検出しますが、既にその関数内で発生した副作用は取り消せません。
 - 任意のaction内部の直接的なUI更新・サーバー副作用も撤回できません。通信の中断・エラー表示・再送判断はAPI呼び出し側で扱ってください。
-- Provider破棄は購読・タイマー・予約・managed入力を掃除します。StrictModeの再接続にも対応します。保存開始後の画面離脱では中断を要求し、同じScopeが残る場合は元action終了までbusyを維持します。
+- Provider破棄は購読・タイマー・予約・managed入力を掃除します。StrictModeの再接続にも対応します。保存開始後の画面離脱では中断を要求し、同じScopeが残る場合は元action終了までisRunningを維持します。
 - Portal/Shadow DOMをまたぐcompositionやフォーカスの自動収集は保証しません。formイベントが届く範囲で利用してください。
-- サンプルはbusy中の編集をreadOnlyで抑止します。共通入力の世代管理は再編集されても古い結果を反映しません。
+- サンプルはisRunning中の編集をreadOnlyで抑止します。共通入力の世代管理は再編集されても古い結果を反映しません。
 
 ## 開発と検証
 
@@ -276,7 +276,7 @@ const { runAfterTasks } = useAsyncTasks((context) => save(values, context), {
   blurActiveElement: false, // フォーカスを維持する場合
   beforeWait: () => setError(null), // 同期の準備処理。asyncにはしない
   waitTimeoutMs: null, // 入力タスクは無期限で待つ
-  actionTimeoutMs: 30000, // 保存開始から30秒。期限超過時は中断要求し、元処理終了までbusyを維持
+  actionTimeoutMs: 30000, // 保存開始から30秒。期限超過時は中断要求し、元処理終了までisRunningを維持
 });
 ```
 
@@ -324,37 +324,35 @@ registerAsyncTask(({ signal }) => validate(input, { signal }));
 
 同じ処理の再登録で前の結果を無効化したい場合だけ、`{ key: "name" }`を指定します。自動UUIDでは各登録が独立しているため、前の登録を自動で無効化しません。UUID APIのない環境では時刻と連番による一意なIDを使います。background用のblocking:false、失敗・取消などの既存ルールは同じです。
 
-## taskBusyとbusy
+## hasPendingTasksとisRunning
 
-`taskBusy`は、未完了の登録タスクが1件でもある間trueです。keyなしで登録したタスクやblocking:falseの背景処理も含み、同じProviderの全子孫で共有します。引数なしのuseAsyncTasksからも購読できます。
+`hasPendingTasks`は、未完了の登録タスクが1件でもある間trueです。keyなしで登録したタスクやblocking:falseの背景処理も含み、同じProviderの全子孫で共有します。引数なしのuseAsyncTasksからも購読できます。
 
 ```tsx
-const { registerAsyncTask, runAfterTasks, busy, taskBusy } = useAsyncTasks(
-  (context) => save(values, context),
-  { onError: showError },
-);
-// taskBusyは入力の処理中表示に使い、保存ボタンの無効化にはbusyを使います。
+const { registerAsyncTask, runAfterTasks, isRunning, hasPendingTasks } =
+  useAsyncTasks((context) => save(values, context), { onError: showError });
+// hasPendingTasksは入力の処理中表示に使い、保存ボタンの無効化にはisRunningを使います。
 ```
 
-| 状態                                     | taskBusy | busy  |
-| ---------------------------------------- | -------- | ----- |
-| 入力タスクだけが実行中                   | true     | false |
-| 保存要求後、入力タスクを待っている       | true     | true  |
-| 入力タスク完了後、保存actionだけが実行中 | false    | true  |
-| すべて完了                               | false    | false |
+| 状態                                     | hasPendingTasks | isRunning |
+| ---------------------------------------- | --------------- | --------- |
+| 入力タスクだけが実行中                   | true            | false     |
+| 保存要求後、入力タスクを待っている       | true            | true      |
+| 入力タスク完了後、保存actionだけが実行中 | false           | true      |
+| すべて完了                               | false           | false     |
 
-未確定入力(dirty)だけの状態はtaskBusyに含みません。タスクの取消・期限切れでは管理対象から外れるため、元のPromiseが残っていてもtaskBusyを解除します。blur直後に保存ボタンを無効化するとclickが届かなくなる場合があるので、ボタンのdisabledはbusyを使います。
+未確定入力(dirty)だけの状態はhasPendingTasksに含みません。タスクの取消・期限切れでは管理対象から外れるため、元のPromiseが残っていてもhasPendingTasksを解除します。blur直後に保存ボタンを無効化するとclickが届かなくなる場合があるので、ボタンのdisabledはisRunningを使います。
 
 ## useAsyncTasksの戻り値
 
 戻り値の型はTaskActionResultとAsyncTasksSnapshotで公開し、各プロパティにも説明コメントを付けています。
 
-| 項目          | 意味と利用場面                                                            |
-| ------------- | ------------------------------------------------------------------------- |
-| runAfterTasks | イベントから実行を予約するvoid関数。タスクとstate反映を待ってactionを呼ぶ |
-| busy          | 保存要求の入力待機・保存実行中。ボタンの無効化に使う                      |
-| taskBusy      | 未完了の登録タスクあり。入力処理中の表示に使う                            |
-| phase         | idle/preparing/waiting/ready/executingの現在段階                          |
-| requestId     | 保存要求の識別子。要求がない場合はnull。入力タスクのUUIDとは別            |
+| 項目            | 意味と利用場面                                                            |
+| --------------- | ------------------------------------------------------------------------- |
+| runAfterTasks   | イベントから実行を予約するvoid関数。タスクとstate反映を待ってactionを呼ぶ |
+| isRunning       | 保存要求の入力待機・保存実行中。ボタンの無効化に使う                      |
+| hasPendingTasks | 未完了の登録タスクあり。入力処理中の表示に使う                            |
+| phase           | idle/preparing/waiting/ready/executingの現在段階                          |
+| requestId       | 保存要求の識別子。要求がない場合はnull。入力タスクのUUIDとは別            |
 
 中心ファイルのuseTaskActionのreturnではspreadを使わず、全5項目を説明付きで列挙しています。

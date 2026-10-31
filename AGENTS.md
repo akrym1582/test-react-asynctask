@@ -16,6 +16,8 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 
 ## APIの方針
 
+- 実行中の状態名は`isRunning`、未完了の登録タスクがある状態名は`hasPendingTasks`です。旧名`busy`・`taskBusy`の互換プロパティは提供しません。
+
 - 公開Hookは`useAsyncTasks`に統一します。引数なしは登録・共有状態参照用、actionとoptionsを指定した場合は`runAfterTasks`も返します。登録用呼び出しの戻り値の同一性を保ち、任意の入力Hookを不要に再mountさせないでください。
 - 実行名は`runAfterTasks`です。保存結果の分類・照会・再送判断はAPI呼び出し側で行います。`isResultUnknown`・`reconcile`・`UncertainActionError`は共通部品へ戻さないでください。`useAfterTasks`・`run`・`blocked`の互換APIは提供しません。
 
@@ -27,14 +29,14 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 
 - `blurActiveElement`の既定値はtrueです。重複排除後、beforeWaitより前に現在のHTML要素をblurします。falseはフォーカスを維持します。SSRではdocumentを参照せず、対象がProviderのDOM範囲に限定されない点を説明してください。
 
-- `taskBusy`はpendingの登録タスクが1件以上ある状態です。背景処理も含めて全子孫へ共有し、dirty入力や保存actionだけの実行は含めません。`busy`は保存要求の待機・実行中を示します。blur直後のclickを妨げないよう保存ボタンの無効化にtaskBusyを使わないでください。
+- `hasPendingTasks`はpendingの登録タスクが1件以上ある状態です。背景処理も含めて全子孫へ共有し、dirty入力や保存actionだけの実行は含めません。`isRunning`は保存要求の待機・実行中を示します。blur直後のclickを妨げないよう保存ボタンの無効化にhasPendingTasksを使わないでください。
 
 ## 保持すべき動作
 
 - 単純なPromise待機だけでは古いclosureは更新されません。タスク完了後に再レンダーし、そのレンダーに対応するactionを呼びます。
 - 入力の再編集、取消、期限切れ、unmount、同じkeyでの再登録後は、古い結果をonCommitへ渡しません。
 - 待機中に追加されたタスクとdirty入力も保存前に確認します。
-- 保存要求の重複をProvider単位で防ぎます。actionの成功・失敗後にbusyを解除します。保存期限ではsignalで中断要求とonError通知を行い、元actionの終了まではbusyを維持します。API側でcatch済みなら共通側は再通知しません。
+- 保存要求の重複をProvider単位で防ぎます。actionの成功・失敗後にisRunningを解除します。保存期限ではsignalで中断要求とonError通知を行い、元actionの終了まではisRunningを維持します。API側でcatch済みなら共通側は再通知しません。
 - React 18.3/19、StrictMode、SSRに対応します。破棄されたレンダーの値をlatest getterから公開しません。
 - SyntheticEventの必要な値はイベント中に取得し、preventDefaultも同期的に実行します。
 - FirefoxのPlaywright `fill()`はcompositionイベントを発生させるため、通常のキー入力を検証するケースは`pressSequentially()`を使います。IMEケースは分けます。合成イベントを実OSの日本語IME検証済みとは扱いません。

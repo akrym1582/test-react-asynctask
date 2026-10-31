@@ -43,7 +43,7 @@ function FieldError({ taskKey }: { taskKey: string }) {
 function Fields({ normalizeName, normalizeAddress, save }: Props) {
   const [values, setValues] = useState<Values>({ name: "", address: "" });
   const [error, setError] = useState<string | null>(null);
-  const { runAfterTasks, busy } = useAsyncTasks(
+  const { runAfterTasks, isRunning } = useAsyncTasks(
     // valuesはactionを開始するレンダーでのsnapshotです。
     // signalとrequestIdを通信層まで渡すと、中断・ログ記録に利用できます。
     async (context) => {
@@ -77,7 +77,7 @@ function Fields({ normalizeName, normalizeAddress, save }: Props) {
         氏名
         <input
           value={values.name}
-          readOnly={busy}
+          readOnly={isRunning}
           onChange={(event) => {
             const name = event.currentTarget.value;
             nameField.change(name);
@@ -91,7 +91,7 @@ function Fields({ normalizeName, normalizeAddress, save }: Props) {
         住所
         <input
           value={values.address}
-          readOnly={busy}
+          readOnly={isRunning}
           onChange={(event) => {
             const address = event.currentTarget.value;
             addressField.change(address);
@@ -101,8 +101,8 @@ function Fields({ normalizeName, normalizeAddress, save }: Props) {
         />
       </label>
       <FieldError taskKey="address" />
-      <button type="submit" disabled={busy}>
-        {busy ? "処理中…" : "保存"}
+      <button type="submit" disabled={isRunning}>
+        {isRunning ? "処理中…" : "保存"}
       </button>
       {error && <p role="alert">{error}</p>}
     </form>

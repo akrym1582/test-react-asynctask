@@ -27,7 +27,7 @@ describe("入力UIの確定・エラー表示・破棄", () => {
   }) {
     const [value, setValue] = useState("");
     const field = useTaskField("x");
-    const { runAfterTasks, busy } = useAsyncTasks(() => onSave(value), {
+    const { runAfterTasks, isRunning } = useAsyncTasks(() => onSave(value), {
       onError: () => {},
     });
     return (
@@ -40,7 +40,7 @@ describe("入力UIの確定・エラー表示・破棄", () => {
           onCommit={setValue}
           onChange={(e) => setValue(e.currentTarget.value)}
         />
-        <button onClick={runAfterTasks} disabled={busy}>
+        <button onClick={runAfterTasks} disabled={isRunning}>
           save
         </button>
         <output>{field.phase}</output>

@@ -53,7 +53,7 @@ describe("タスクの登録・待機と実行制御", () => {
     await expect(store.wait()).resolves.toBeUndefined();
   });
   // 確認する状況: 要求Aを開始して解除し、要求Bの開始後にもう一度Aの解除を試みます。
-  // 期待する結果: 実行中の追加要求は拒否し、古いAの解除ではBのbusyは消えず、Bの解除でidleへ戻ります。
+  // 期待する結果: 実行中の追加要求は拒否し、古いAの解除ではBのisRunningは消えず、Bの解除でidleへ戻ります。
   it("同じProvider内の重複実行と古い要求によるロック解除を防ぐ", () => {
     const store = createTaskStore();
     const first = store.beginAction()!;
@@ -61,9 +61,9 @@ describe("タスクの登録・待機と実行制御", () => {
     store.release(first);
     const second = store.beginAction()!;
     store.release(first);
-    expect(store.getSnapshot().busy).toBe(true);
+    expect(store.getSnapshot().isRunning).toBe(true);
     store.release(second);
-    expect(store.getSnapshot().busy).toBe(false);
+    expect(store.getSnapshot().isRunning).toBe(false);
   });
 });
 describe("同じkeyのタスク置き換え", () => {
@@ -182,20 +182,20 @@ describe("タスクの期限・取消・背景処理", () => {
 
 describe("エラー通知後の実行状態の後始末", () => {
   // 確認する状況: actionを失敗させ、onErrorでも例外を投げた後、もう一度実行します。
-  // 期待する結果: エラー通知側の例外があってもbusyを解除し、2回目のactionを開始できます。
+  // 期待する結果: エラー通知側の例外があってもisRunningを解除し、2回目のactionを開始できます。
   it("onErrorが例外を投げても保存要求のロックを解除する", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const action = vi.fn(() => {
       throw Error("action");
     });
     function Form() {
-      const { runAfterTasks, busy } = useAsyncTasks(action, {
+      const { runAfterTasks, isRunning } = useAsyncTasks(action, {
         onError: () => {
           throw Error("handler");
         },
       });
       return (
-        <button disabled={busy} onClick={runAfterTasks}>
+        <button disabled={isRunning} onClick={runAfterTasks}>
           runAfterTasks
         </button>
       );
@@ -311,14 +311,14 @@ it.each([undefined, true, false])(
   },
 );
 // 確認する状況: フォーカス中の要素のblurメソッドが例外を投げる状況で保存を実行します。
-// 期待する結果: onErrorへ同じ例外を1回通知し、beforeWaitも保存も実行せず、busyをfalseに戻します。
-it("自動blurの失敗を通知し保存を始めずbusyを解除する", async () => {
+// 期待する結果: onErrorへ同じ例外を1回通知し、beforeWaitも保存も実行せず、isRunningをfalseに戻します。
+it("自動blurの失敗を通知し保存を始めずisRunningを解除する", async () => {
   const failure = new Error("blur failed");
   const onError = vi.fn();
   const beforeWait = vi.fn();
   const save = vi.fn();
   function Form() {
-    const { runAfterTasks, busy } = useAsyncTasks(save, {
+    const { runAfterTasks, isRunning } = useAsyncTasks(save, {
       onError,
       beforeWait,
     });
@@ -326,7 +326,7 @@ it("自動blurの失敗を通知し保存を始めずbusyを解除する", async
       <>
         <input />
         <button onClick={runAfterTasks}>save</button>
-        <output>{String(busy)}</output>
+        <output>{String(isRunning)}</output>
       </>
     );
   }
@@ -351,15 +351,15 @@ it("自動blurの失敗を通知し保存を始めずbusyを解除する", async
   }
 });
 // 確認する状況: 同じProvider内の別コンポーネントで保存を開始し、通常のAPIエラーで終了させます。
-// 期待する結果: 引数なしのuseAsyncTasksからも実行中はbusy、APIエラーによる終了後はidleへの変化を購読できます。
+// 期待する結果: 引数なしのuseAsyncTasksからも実行中はisRunning、APIエラーによる終了後はidleへの変化を購読できます。
 it("登録専用Hookにも別コンポーネントの実行状態を共有する", async () => {
   let reject!: (reason: unknown) => void;
   const saving = new Promise<void>((_, no) => {
     reject = no;
   });
   function Observer() {
-    const { busy } = useAsyncTasks();
-    return <output>{busy ? "busy" : "idle"}</output>;
+    const { isRunning } = useAsyncTasks();
+    return <output>{isRunning ? "isRunning" : "idle"}</output>;
   }
   function Form() {
     const { runAfterTasks } = useAsyncTasks(() => saving, { onError: vi.fn() });
@@ -373,7 +373,7 @@ it("登録専用Hookにも別コンポーネントの実行状態を共有する
   );
   fireEvent.click(screen.getByText("save"));
   await waitFor(() =>
-    expect(screen.getByRole("status").textContent).toBe("busy"),
+    expect(screen.getByRole("status").textContent).toBe("isRunning"),
   );
   await act(async () => reject(new Error("save failed")));
   expect(screen.getByRole("status").textContent).toBe("idle");
@@ -432,7 +432,7 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
 
       function Form() {
         const [value, setValue] = useState("old");
-        const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(
+        const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
           () => {
             events.push("save");
             save(value);
@@ -473,7 +473,7 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
               保存
             </button>
             <output data-testid="value">{value}</output>
-            <output data-testid="busy">{String(busy)}</output>
+            <output data-testid="isRunning">{String(isRunning)}</output>
           </>
         );
       }
@@ -499,7 +499,7 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
       // 古いclosureのまま進む実装だと、ここで未確定値を保存してしまうため失敗します。
       expect(save).not.toHaveBeenCalled();
       expect(screen.getByTestId("value").textContent).toBe(" raw ");
-      expect(screen.getByTestId("busy").textContent).toBe("true");
+      expect(screen.getByTestId("isRunning").textContent).toBe("true");
       expect(events).toEqual(
         blurBeforeClick ? ["blur-start", "click"] : ["click", "blur-start"],
       );
@@ -517,7 +517,7 @@ describe("元の要件: 非同期blurのstate更新を待ってclickの処理を
         "save",
       ]);
       await waitFor(() =>
-        expect(screen.getByTestId("busy").textContent).toBe("false"),
+        expect(screen.getByTestId("isRunning").textContent).toBe("false"),
       );
       expect(onError).not.toHaveBeenCalled();
     },
@@ -645,9 +645,9 @@ describe("key省略の自動UUID登録と全件待機", () => {
   });
 });
 
-describe("登録タスクの実行状態taskBusy", () => {
+describe("登録タスクの実行状態hasPendingTasks", () => {
   // 確認する状況: 保存とは独立した背景タスクを登録し、成功・失敗・取消・期限切れでそれぞれ終了させます。
-  // 期待する結果: 背景タスクもpending中はtaskBusy=trueですがbusy=falseです。どの終了理由でもtaskBusyを解除します。
+  // 期待する結果: 背景タスクもpending中はhasPendingTasks=trueですがisRunning=falseです。どの終了理由でもhasPendingTasksを解除します。
   it.each(["fulfilled", "rejected", "cancelled", "timedOut"] as const)(
     "背景タスクも実行状態へ含め終了時に解除する（%s）",
     async (status) => {
@@ -658,28 +658,28 @@ describe("登録タスクの実行状態taskBusy", () => {
         blocking: false,
         timeoutMs: status === "timedOut" ? 5 : null,
       });
-      expect(store.taskBusy).toBe(true);
-      expect(store.busy).toBe(false);
+      expect(store.hasPendingTasks).toBe(true);
+      expect(store.isRunning).toBe(false);
       if (status === "fulfilled") task.resolve("done");
       else if (status === "rejected") task.reject(new Error("task failed"));
       else if (status === "cancelled") handle.cancel();
       else await vi.advanceTimersByTimeAsync(5);
       expect((await handle.result).status).toBe(status);
-      expect(store.taskBusy).toBe(false);
-      expect(store.getSnapshot().taskBusy).toBe(false);
-      expect(store.busy).toBe(false);
+      expect(store.hasPendingTasks).toBe(false);
+      expect(store.getSnapshot().hasPendingTasks).toBe(false);
+      expect(store.isRunning).toBe(false);
     },
   );
 
   // 確認する状況: タスク登録、保存要求、入力タスク完了、保存action完了を別々に発生させ、別の子から状態を購読します。
-  // 期待する結果: taskBusyとbusyは独立して変化し、登録専用のHookにも全段階の変化が伝わります。
-  it("全子孫でtaskBusyを共有し入力処理中と保存処理中を区別する", async () => {
+  // 期待する結果: hasPendingTasksとisRunningは独立して変化し、登録専用のHookにも全段階の変化が伝わります。
+  it("全子孫でhasPendingTasksを共有し入力処理中と保存処理中を区別する", async () => {
     const input = deferred<void>();
     const saving = deferred<void>();
     const save = vi.fn(() => saving.promise);
     function Observer() {
-      const { taskBusy, busy } = useAsyncTasks();
-      return <output>{`${taskBusy}/${busy}`}</output>;
+      const { hasPendingTasks, isRunning } = useAsyncTasks();
+      return <output>{`${hasPendingTasks}/${isRunning}`}</output>;
     }
     function Form() {
       const { registerAsyncTask, runAfterTasks } = useAsyncTasks(save, {
@@ -723,8 +723,8 @@ describe("登録タスクの実行状態taskBusy", () => {
 
 describe("APIエラーを呼び出し側で扱う保存処理", () => {
   // 確認する状況: 保存の期限を超えても元のPromiseがまだ終了しない状態で、再度保存を要求します。
-  // 期待する結果: timeoutを1回通知しsignalで中断要求します。元の処理が終わるまではbusyを保ち、終了後は再実行できます。
-  it("保存期限で中断を要求し元の処理終了後にbusyを解除する", async () => {
+  // 期待する結果: timeoutを1回通知しsignalで中断要求します。元の処理が終わるまではisRunningを保ち、終了後は再実行できます。
+  it("保存期限で中断を要求し元の処理終了後にisRunningを解除する", async () => {
     vi.useFakeTimers();
     const saving = deferred<void>();
     const onError = vi.fn();
@@ -733,14 +733,14 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
       .mockImplementationOnce(() => saving.promise)
       .mockResolvedValue(undefined);
     function Form() {
-      const { runAfterTasks, busy } = useAsyncTasks(action, {
+      const { runAfterTasks, isRunning } = useAsyncTasks(action, {
         onError,
         actionTimeoutMs: 10,
       });
       return (
         <>
           <button onClick={runAfterTasks}>保存</button>
-          <output>{busy ? "busy" : "idle"}</output>
+          <output>{isRunning ? "isRunning" : "idle"}</output>
         </>
       );
     }
@@ -756,7 +756,7 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
       expect.objectContaining({ kind: "timeout" }),
     );
     expect(action.mock.calls[0][0].signal.aborted).toBe(true);
-    expect(screen.getByRole("status").textContent).toBe("busy");
+    expect(screen.getByRole("status").textContent).toBe("isRunning");
     fireEvent.click(screen.getByText("保存"));
     expect(action).toHaveBeenCalledTimes(1);
     await act(async () => saving.resolve());
@@ -767,15 +767,15 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  // 確認する状況: 保存中のコンポーネントだけを削除し、同じProvider内の別コンポーネントでbusyを購読します。
-  // 期待する結果: signalで中断要求し、元の保存が終了した時点で共有busyを解除します。削除済み画面へのエラー通知は行いません。
-  it("保存開始後のunmountでも元の処理終了時に共有busyを解除する", async () => {
+  // 確認する状況: 保存中のコンポーネントだけを削除し、同じProvider内の別コンポーネントでisRunningを購読します。
+  // 期待する結果: signalで中断要求し、元の保存が終了した時点で共有isRunningを解除します。削除済み画面へのエラー通知は行いません。
+  it("保存開始後のunmountでも元の処理終了時に共有isRunningを解除する", async () => {
     const saving = deferred<void>();
     const onError = vi.fn();
     const action = vi.fn((_context: ActionContext) => saving.promise);
     function Observer() {
-      const { busy } = useAsyncTasks();
-      return <output>{busy ? "busy" : "idle"}</output>;
+      const { isRunning } = useAsyncTasks();
+      return <output>{isRunning ? "isRunning" : "idle"}</output>;
     }
     function Form() {
       const { runAfterTasks } = useAsyncTasks(action, { onError });
@@ -794,21 +794,21 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
     await flush();
     view.rerender(<Container show={false} />);
     expect(action.mock.calls[0][0].signal.aborted).toBe(true);
-    expect(screen.getByRole("status").textContent).toBe("busy");
+    expect(screen.getByRole("status").textContent).toBe("isRunning");
     await act(async () => saving.resolve());
     expect(screen.getByRole("status").textContent).toBe("idle");
     expect(onError).not.toHaveBeenCalled();
   });
 
   // 確認する状況: action内のAPI呼び出しが失敗し、API側のcatchで表示等を済ませて正常終了します。
-  // 期待する結果: 共通側は同じエラーを再通知せずbusyを解除し、次の保存要求を受け付けます。
-  it("API側で処理済みのエラーを重ねて通知せずbusyを解除する", async () => {
+  // 期待する結果: 共通側は同じエラーを再通知せずisRunningを解除し、次の保存要求を受け付けます。
+  it("API側で処理済みのエラーを重ねて通知せずisRunningを解除する", async () => {
     const apiError = new Error("API error");
     const api = vi.fn().mockRejectedValue(apiError);
     const handled = vi.fn();
     const onError = vi.fn();
     function Form() {
-      const { runAfterTasks, busy } = useAsyncTasks(
+      const { runAfterTasks, isRunning } = useAsyncTasks(
         async () => {
           try {
             await api();
@@ -820,10 +820,10 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
       );
       return (
         <>
-          <button disabled={busy} onClick={runAfterTasks}>
+          <button disabled={isRunning} onClick={runAfterTasks}>
             保存
           </button>
-          <output>{String(busy)}</output>
+          <output>{String(isRunning)}</output>
         </>
       );
     }

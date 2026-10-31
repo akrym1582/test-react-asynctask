@@ -35,7 +35,7 @@ function Fields({
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(
+  const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
     async () => {
       await save(value);
     },
@@ -51,7 +51,7 @@ function Fields({
     <>
       <input
         value={value}
-        readOnly={busy}
+        readOnly={isRunning}
         onChange={(event) => setValue(event.currentTarget.value)}
         onBlur={(event) => {
           // SyntheticEventの値はawaitの前に読み取ります。
@@ -62,7 +62,7 @@ function Fields({
           });
         }}
       />
-      <button type="button" onClick={runAfterTasks} disabled={busy}>
+      <button type="button" onClick={runAfterTasks} disabled={isRunning}>
         保存
       </button>
       {error && <p role="alert">{error}</p>}

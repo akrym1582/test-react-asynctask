@@ -33,7 +33,7 @@ function Harness({
   onError: (error: unknown) => void;
 }) {
   const [value, setValue] = useState("old");
-  const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(
+  const { registerAsyncTask, runAfterTasks, isRunning } = useAsyncTasks(
     () => action(value),
     { onError },
   );
@@ -46,7 +46,7 @@ function Harness({
       >
         blur
       </button>
-      <button onClick={runAfterTasks} disabled={busy}>
+      <button onClick={runAfterTasks} disabled={isRunning}>
         save
       </button>
       <output>{value}</output>
@@ -67,7 +67,7 @@ function setup(task: Promise<string>, action = vi.fn(), onError = vi.fn()) {
 describe("入力待機から保存までの連携", () => {
   // 確認する状況: 入力待機中に保存を連打し、入力の確定と保存の完了を別々に制御します。
   // 期待する結果: 入力確定後にnewで保存を1回実行し、保存中はボタンを無効化して完了後に操作可能へ戻します。
-  it("入力完了後の新しいstateで保存を1回だけ行い完了までbusyを維持する", async () => {
+  it("入力完了後の新しいstateで保存を1回だけ行い完了までisRunningを維持する", async () => {
     const input = deferred<string>();
     const saving = deferred<void>();
     const action = vi.fn(() => saving.promise);
@@ -118,7 +118,7 @@ describe("入力待機から保存までの連携", () => {
   });
   // 確認する状況: 保存action自身が通常のErrorで失敗する状況を作ります。
   // 期待する結果: onErrorへ1回通知し、保存ボタンを再び操作可能にします。
-  it("保存処理の失敗を通知してbusyを解除する", async () => {
+  it("保存処理の失敗を通知してisRunningを解除する", async () => {
     const action = vi.fn(async () => {
       throw new Error("save failed");
     });
@@ -174,7 +174,7 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
       const store = useAsyncTasks();
       const [value, setValue] = useState("old");
       const added = useRef(false);
-      const { runAfterTasks, busy } = useAsyncTasks(
+      const { runAfterTasks, isRunning } = useAsyncTasks(
         () => {
           action(value);
         },
@@ -195,7 +195,7 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
       }, [value, store]);
       return (
         <button
-          disabled={busy}
+          disabled={isRunning}
           onClick={() => {
             store.registerAsyncTask(() => first.promise, {
               key: "first",
@@ -266,14 +266,14 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
     const onError = vi.fn();
     const error = new Error("before");
     function Form() {
-      const { runAfterTasks, busy } = useAsyncTasks(action, {
+      const { runAfterTasks, isRunning } = useAsyncTasks(action, {
         onError,
         beforeWait: () => {
           throw error;
         },
       });
       return (
-        <button onClick={runAfterTasks} disabled={busy}>
+        <button onClick={runAfterTasks} disabled={isRunning}>
           execute
         </button>
       );

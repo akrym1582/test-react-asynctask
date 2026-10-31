@@ -24,7 +24,7 @@ import { useAsyncSubmit } from "./AsyncTasks";
 import { useLatestCommitted } from "./AsyncTasks";
 function Example() {
   const tasks = useAsyncTasks();
-  const registeredTasksAreRunning: boolean = tasks.taskBusy;
+  const registeredTasksAreRunning: boolean = tasks.hasPendingTasks;
   // @ts-expect-error 任意の入力管理本体を中心ファイルに戻さない
   tasks.mountField("name", "", () => ({}));
   tasks.registerAsyncTask(async () => "ok", {
@@ -40,20 +40,24 @@ function Example() {
   tasks.track("name", () => "ok");
   // @ts-expect-error registerという汎用名も提供しない
   tasks.register(Promise.resolve());
-  const { runAfterTasks, busy, taskBusy } = useAsyncTasks(() => {}, { onError: console.error });
+  const { runAfterTasks, isRunning, hasPendingTasks } = useAsyncTasks(() => {}, { onError: console.error });
   // @ts-expect-error 登録だけの呼び出しには実行操作を公開しない
   tasks.runAfterTasks();
   const executor = useAsyncTasks(() => {}, { onError: console.error });
-  const pendingTasks: boolean = executor.taskBusy;
+  const pendingTasks: boolean = executor.hasPendingTasks;
   // @ts-expect-error 旧名は提供しない
   executor.run();
   // @ts-expect-error 旧状態名は提供しない
   executor.blocked;
+  // @ts-expect-error 旧状態名busyは提供しない
+  executor.busy;
+  // @ts-expect-error 旧状態名taskBusyは提供しない
+  executor.taskBusy;
   // @ts-expect-error 結果不明フラグはAPI呼び出し側で管理する
   executor.isResultUnknown;
   // @ts-expect-error 結果照会はAPI呼び出し側で行う
   executor.reconcile("id", async () => "saved");
-  return <button onClick={runAfterTasks} disabled={busy}>save</button>;
+  return <button onClick={runAfterTasks} disabled={isRunning}>save</button>;
 }`,
   },
   {

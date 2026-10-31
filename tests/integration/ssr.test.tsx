@@ -11,7 +11,7 @@ it("SSRではDOM参照エラーやEffect警告を出さず保存処理も開始�
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   function Form() {
     const get = useLatestCommitted("server");
-    const { busy } = useAsyncTasks(action, { onError: vi.fn() });
+    const { isRunning } = useAsyncTasks(action, { onError: vi.fn() });
     return (
       <>
         <TrackedInput
@@ -23,7 +23,7 @@ it("SSRではDOM参照エラーやEffect警告を出さず保存処理も開始�
         />
         <span>
           {get()}
-          {String(busy)}
+          {String(isRunning)}
         </span>
       </>
     );

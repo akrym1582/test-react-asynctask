@@ -21,7 +21,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 // 確認する状況: 期限省略と、Providerの5ms設定を個別nullで上書きする場合を比較し、入力待機と保存で各1時間進めます。
-// 期待する結果: 両設定ともエラーなくbusyを維持し、入力確定後に最新値を保存します。保存完了時にidleへ戻り、タイマーも残しません。
+// 期待する結果: 両設定ともエラーなくisRunningを維持し、入力確定後に最新値を保存します。保存完了時にidleへ戻り、タイマーも残しません。
 it.each([false, true])(
   "既定の無期限と個別null上書きで入力待機・保存の期限を無効化する（上書き=%s）",
   async (override) => {
@@ -39,7 +39,7 @@ it.each([false, true])(
         timeoutMs: override ? null : undefined,
         onCommit: setValue,
       });
-      const { runAfterTasks, busy } = useAsyncTasks(() => save(value), {
+      const { runAfterTasks, isRunning } = useAsyncTasks(() => save(value), {
         onError: error,
         waitTimeoutMs: override ? null : undefined,
         actionTimeoutMs: override ? null : undefined,
@@ -55,7 +55,7 @@ it.each([false, true])(
             onBlur={field.commit}
           />
           <button onClick={runAfterTasks}>save</button>
-          <output>{busy ? "busy" : "idle"}</output>
+          <output>{isRunning ? "isRunning" : "idle"}</output>
         </>
       );
     }
@@ -75,11 +75,11 @@ it.each([false, true])(
     await act(async () => vi.advanceTimersByTimeAsync(3600000));
     expect(save).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toBe("busy");
+    expect(screen.getByRole("status").textContent).toBe("isRunning");
     await act(async () => normalize.resolve("normalized"));
     expect(save).toHaveBeenCalledExactlyOnceWith("normalized");
     await act(async () => vi.advanceTimersByTimeAsync(3600000));
-    expect(screen.getByRole("status").textContent).toBe("busy");
+    expect(screen.getByRole("status").textContent).toBe("isRunning");
     expect(error).not.toHaveBeenCalled();
     await act(async () => saving.resolve());
     expect(screen.getByRole("status").textContent).toBe("idle");
@@ -271,12 +271,12 @@ it("任意の入力管理を待機・再試行・Scope破棄へ接続できる",
   expect(commit).toHaveBeenCalledExactlyOnceWith("ok");
   field.change("pending");
   field.commit();
-  expect(store.taskBusy).toBe(true);
+  expect(store.hasPendingTasks).toBe(true);
   release();
   await Promise.resolve();
   expect(fields.getFieldSnapshot("name").phase).toBe("clean");
   expect(store.hasPending()).toBe(false);
-  expect(store.taskBusy).toBe(false);
+  expect(store.hasPendingTasks).toBe(false);
   pending.resolve("late");
   await Promise.resolve();
   expect(commit).toHaveBeenCalledTimes(1);
