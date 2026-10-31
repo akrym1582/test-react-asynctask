@@ -6,22 +6,32 @@
 
 | ファイル | 役割 |
 |---|---|
-| src/taskStore.ts | Promise管理、エラー保持、Scope単位の実行ロック |
-| src/AsyncTasksContext.tsx | Provider、useAsyncTasks |
-| src/useAfterTasks.ts | 待機後のレンダーでactionを実行するHook |
-| src/TrackedInput.tsx | onBlurのPromiseを自動登録する共通Input例（任意） |
+| src/AsyncTasks.tsx | 配布用1ファイル。Context・タスク管理・useAfterTasks・TrackedInputを含む |
 | src/ExampleForm.tsx | 複数入力、非同期blur、保存、エラー表示の使用例 |
 | tests/afterTasks.test.tsx | タスク待機・最新state・失敗・連打・アンマウントのテスト |
 
 ## 導入
 
-既存アプリへ `src` の必要なファイルをコピーし、対象フォームを `AsyncTasksProvider` で囲みます。Providerは画面・フォームごとに分けてください。Providerを使うHookは、そのProviderの子コンポーネントで呼びます。
+**既存アプリへ `src/AsyncTasks.tsx` の1ファイルだけをコピー**し、対象フォームを `AsyncTasksProvider` で囲みます。Providerは画面・フォームごとに分けてください。Providerを使うHookは、そのProviderの子コンポーネントで呼びます。
 
 ```tsx
 <AsyncTasksProvider>
   <EditForm />
 </AsyncTasksProvider>
 ```
+
+## インポート
+
+```tsx
+import {
+  AsyncTasksProvider,
+  useAsyncTasks,
+  useAfterTasks,
+  TrackedInput,
+} from "./AsyncTasks";
+```
+
+共通Inputに自動登録を組み込む場合はTrackedInputを使わなくても構いません。旧ファイル名のimportは上記に変更してください。ローカルファイルへの依存はなく、React以外の実行時依存はありません。TypeScriptのlibはES2021以上（AggregateError）とDOMが必要です。Next.js App Routerの場合は利用先に合わせてクライアント境界（`"use client"`）を設定してください。
 
 ## 普通のbuttonから呼ぶ
 
@@ -108,3 +118,20 @@ npm test
 ```
 
 React 19の検証用依存関係をpackage-lock.jsonに含めています。既存アプリのpackage.jsonを置き換える必要はありません。
+
+## 追加で考慮すること
+
+| 項目 | 対応方針 |
+|---|---|
+| 終わらないPromise | タスクや保存APIにアプリ側のタイムアウトを設定する。現状は完了するまでbusyが続く。待機だけ解除して保存を続行しない |
+| 同一入力の再編集 | 世代番号による古い結果の破棄、またはAbortControllerをAPI側で実装する。taskKeyはstateの上書きを防がない |
+| 入力中のEnter / IME | 日本語変換確定のEnterで誤送信しないよう、実ブラウザーでcomposition状態を考慮する |
+| blur時にDOMを変える | 保存ボタンをblur開始直後に削除・disabled化するとclick自体が届かない場合がある。busyはrun開始から適用する |
+| Scope内のタスク | 保存前に必要なタスクのみ登録する。定期ポーリングや別画面の取得は登録しない |
+| エラー表示 | 入力単独の即時表示は画面側で行う。ContextのonError通知はrunを要求したとき。catchして成功扱いにしない |
+| 動的フォーム | 削除した項目のタスクと失敗をどう扱うか決める。現実装はフィールド削除を自動検知しない。clearErrorsは全体解除なので慎重に扱う |
+| 元のDOMイベント | action実行時にはイベント配送が終わっている。preventDefaultやイベント値の取得は同期的に行う |
+| ユーザー操作権限 | window.open、クリップボード、ファイル選択等は遅延実行するとブラウザーのユーザー操作要件を満たせない場合がある。このHookは主に保存等の業務処理用 |
+| 保存の重複 | ローカルの連打防止とは別に、複数タブ・通信再送はサーバー側で冪等性や楽観ロックを検討する |
+
+待機を終えた要求にはレンダー番号を付け、その更新を含むレンダーでのみactionを実行します。タスクの登録世代も確認し、待機完了からEffectまでに追加があれば、完了済みでも改めて待機・再レンダーを経由します。これらは通常のsetStateを対象とした調整であり、Reactの全優先度の更新を強制的に完了させる仕組みではありません。

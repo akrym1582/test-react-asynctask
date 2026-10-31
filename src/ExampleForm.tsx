@@ -1,7 +1,5 @@
 import { useRef, useState } from "react";
-import { AsyncTasksProvider } from "./AsyncTasksContext";
-import { TrackedInput } from "./TrackedInput";
-import { useAfterTasks } from "./useAfterTasks";
+import { AsyncTasksProvider, TrackedInput, useAfterTasks } from "./AsyncTasks";
 
 type Values = { name: string; address: string };
 type Props = {
