@@ -35,24 +35,23 @@ function Fields({
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } =
-    useAsyncTasks(
-      async () => {
-        await save(value);
+  const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(
+    async () => {
+      await save(value);
+    },
+    {
+      // 自動blurは既定で有効です。beforeWaitでは画面の準備だけ行います。
+      beforeWait: () => {
+        setError("");
       },
-      {
-        // 自動blurは既定で有効です。beforeWaitでは画面の準備だけ行います。
-        beforeWait: () => {
-          setError("");
-        },
-        onError: (error) => setError(String(error)),
-      },
-    );
+      onError: (error) => setError(String(error)),
+    },
+  );
   return (
     <>
       <input
         value={value}
-        readOnly={busy || isResultUnknown}
+        readOnly={busy}
         onChange={(event) => setValue(event.currentTarget.value)}
         onBlur={(event) => {
           // SyntheticEventの値はawaitの前に読み取ります。
@@ -63,11 +62,7 @@ function Fields({
           });
         }}
       />
-      <button
-        type="button"
-        onClick={runAfterTasks}
-        disabled={busy || isResultUnknown}
-      >
+      <button type="button" onClick={runAfterTasks} disabled={busy}>
         保存
       </button>
       {error && <p role="alert">{error}</p>}

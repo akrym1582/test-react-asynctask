@@ -27,7 +27,7 @@ import { useLatestCommitted } from "./useLatestCommitted";
 
 引数なしの`useAsyncTasks()`はタスク登録と共有状態の参照に使えます。保存処理と`onError`を渡すと、`runAfterTasks`も取得できます。保存処理はHookの引数として定義し、クリック時には`onClick={runAfterTasks}`で実行します。
 
-`busy`は入力確定の待機・保存中、`isResultUnknown`は保存結果が不明で再送を止める状態です。入力タスクだけの実行中はbusyになりません。入力待機のタイムアウトではisResultUnknownにならず、保存のタイムアウトや通信結果不明時にtrueになります。
+`busy`は保存要求後の入力待機・保存中、`taskBusy`は登録タスクの実行中を示します。保存失敗はonErrorへ通知し、処理終了時にbusyを解除します。APIのエラー表示や再送判断は呼び出し側で扱います。
 
 ## 無期限で待つ設定
 
@@ -48,14 +48,14 @@ Providerの期限は省略時null（無期限）です。Hookやタスクの期�
 通常のinputのblurからタスクを登録できます。`src/PlainBlurExample.tsx`に、Providerとエラー表示を含めた例があります。HookはProviderの子コンポーネントで使います。
 
 ```tsx
-const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } = useAsyncTasks(async context => {
+const { registerAsyncTask, runAfterTasks, busy } = useAsyncTasks(async context => {
   await save({ name }, context);
 }, {
   blurActiveElement: true, // 省略時もtrue。onBlurからタスクを登録させる
   onError: error => setError(String(error)),
 });
 
-<input value={name} readOnly={busy || isResultUnknown}
+<input value={name} readOnly={busy}
   onChange={event => setName(event.currentTarget.value)}
   onBlur={event => {
     const input = event.currentTarget.value; // イベントの値は同期的に取得
@@ -64,7 +64,7 @@ const { registerAsyncTask, runAfterTasks, busy, isResultUnknown } = useAsyncTask
     });
   }}
 />
-<button type="button" onClick={runAfterTasks} disabled={busy || isResultUnknown}>保存</button>
+<button type="button" onClick={runAfterTasks} disabled={busy}>保存</button>
 ```
 
 非同期関数は結果を返し、state更新は`onCommit`へ分けます。key省略時は登録ごとにUUIDを自動生成し、すべての処理を独立して待ちます。必要な場合だけoptions.keyで固定keyを指定でき、同じkeyの再登録時には古い結果を破棄します。次のblurより前の再編集でも古い結果を破棄したい場合は、次の入力Hookを追加します。
@@ -82,11 +82,11 @@ const nameField = useAsyncField({
   normalize: (input, { signal }) => normalizeName(input, { signal }),
   onCommit: setName,
 });
-const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(async context => {
+const { runAfterTasks, busy } = useAsyncTasks(async context => {
   await save({ name }, context);
 }, { onError: error => console.error(error) });
 
-<input value={name} readOnly={busy || isResultUnknown}
+<input value={name} readOnly={busy}
   onChange={event => {
     const value = event.currentTarget.value;
     nameField.change(value); // 編集時点で古い結果を無効化
@@ -94,7 +94,7 @@ const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(async context => 
   }}
   onBlur={nameField.commit}
 />
-<button type="button" onClick={runAfterTasks} disabled={busy || isResultUnknown}>保存</button>
+<button type="button" onClick={runAfterTasks} disabled={busy}>保存</button>
 ```
 
 runAfterTasks時にもdirty項目を確定するため、blurが発生しなくても保存前に確定できます。`change`はstateを変更しないのでsetterも呼んでください。`phase`/`error`で項目状態を参照でき、別コンポーネントからは`useTaskField("name")`でも購読できます。
@@ -119,16 +119,16 @@ import { TrackedInput } from "./TrackedInput";
 
 ## API
 
-| API                                                  | import元           | 用途                                                                        |
-| ---------------------------------------------------- | ------------------ | --------------------------------------------------------------------------- |
-| AsyncTasksProvider                                   | AsyncTasks         | フォーム単位の管理範囲・初期設定                                            |
-| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks         | signalを準備してから処理を開始                                              |
-| useAsyncTasks(action, options)                       | AsyncTasks         | runAfterTasks/busy/taskBusy/isResultUnknown/phase/requestId/reconcileを取得 |
-| useLatestCommitted(value)                            | useLatestCommitted | 最新commit済み値を返す安定したgetter                                        |
-| useAsyncField(options)                               | useAsyncField      | 入力確定・世代管理                                                          |
-| useTaskField(key)                                    | useAsyncField      | 入力のclean/dirty/pending/error状態を購読                                   |
-| TrackedInput                                         | TrackedInput       | 入力Hookを組み込んだUI                                                      |
-| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit     | IME対応のformイベント群                                                     |
+| API                                                  | import元           | 用途                                              |
+| ---------------------------------------------------- | ------------------ | ------------------------------------------------- |
+| AsyncTasksProvider                                   | AsyncTasks         | フォーム単位の管理範囲・初期設定                  |
+| useAsyncTasks().registerAsyncTask(factory, options?) | AsyncTasks         | signalを準備してから処理を開始                    |
+| useAsyncTasks(action, options)                       | AsyncTasks         | runAfterTasks/busy/taskBusy/phase/requestIdを取得 |
+| useLatestCommitted(value)                            | useLatestCommitted | 最新commit済み値を返す安定したgetter              |
+| useAsyncField(options)                               | useAsyncField      | 入力確定・世代管理                                |
+| useTaskField(key)                                    | useAsyncField      | 入力のclean/dirty/pending/error状態を購読         |
+| TrackedInput                                         | TrackedInput       | 入力Hookを組み込んだUI                            |
+| useAsyncSubmit(runAfterTasks)                        | useAsyncSubmit     | IME対応のformイベント群                           |
 
 タスク登録は`registerAsyncTask(factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
 
@@ -155,15 +155,15 @@ useAsyncTasksはタスク完了後にstateを更新し、対応する新しい�
 
 ## サンプルと開発用ファイル
 
-| ファイル                   | 役割                                                    |
-| -------------------------- | ------------------------------------------------------- |
-| src/ExampleForm.tsx        | 通常input + 入力Hook、IME、項目エラー、保存結果照会の例 |
-| src/PlainBlurExample.tsx   | 中心ファイルだけでblurからタスク登録する例              |
-| src/LatestStateExample.tsx | await後に最新commit済み値を読む例                       |
-| src/exampleSaveAdapter.ts  | HTTPの契約例とメモリ上のfake                            |
-| tests / browser-tests      | 単体・結合・SSR・ブラウザー操作テスト                   |
-| scripts/check-copy.mjs     | 中心ファイル単独・任意ファイルの組み合わせを型検証      |
-| AGENTS.md                  | コード編集時に守る構成・API・コメント・検証の方針       |
+| ファイル                   | 役割                                                  |
+| -------------------------- | ----------------------------------------------------- |
+| src/ExampleForm.tsx        | 通常input + 入力Hook、IME、項目エラー、エラー表示の例 |
+| src/PlainBlurExample.tsx   | 中心ファイルだけでblurからタスク登録する例            |
+| src/LatestStateExample.tsx | await後に最新commit済み値を読む例                     |
+| src/exampleSaveAdapter.ts  | HTTPの契約例とメモリ上のfake                          |
+| tests / browser-tests      | 単体・結合・SSR・ブラウザー操作テスト                 |
+| scripts/check-copy.mjs     | 中心ファイル単独・任意ファイルの組み合わせを型検証    |
+| AGENTS.md                  | コード編集時に守る構成・API・コメント・検証の方針     |
 
 ## エラーのタイミング
 
@@ -175,26 +175,22 @@ useAsyncTasksはタスク完了後にstateを更新し、対応する新しい�
 - taskKeyは同じScopeのmanaged入力間で一意にします。重複はエラーです。
 - `clearErrors()`は全体エラーを解除し、失敗したmanaged入力を再確定します。保存ごとに呼ばないでください。
 
-## タイムアウトと結果不明
+## タイムアウトとAPIエラー
 
-既定値は入力タスク・総待機・actionのすべてnull（無期限）です。Providerで設定し、registerAsyncTask/useAsyncField/TrackedInputのtimeoutMsやuseAsyncTasksのwaitTimeoutMs/actionTimeoutMsで上書きできます。`null`は期限なし、0/負数/NaN/Infinityは設定エラーです。Providerの設定は初期化時に固定です。
+入力タスク・総待機・保存の期限はすべて省略時null（無期限）です。Providerで設定し、registerAsyncTask/useAsyncFieldのtimeoutMs、useAsyncTasksのwaitTimeoutMs/actionTimeoutMsで上書きできます。0・負数・NaN・Infinityは設定エラーです。
 
-入力timeoutや待機timeoutは保存を開始しません。managed処理はAbortSignalと世代の両方で無効化されます。signalを無視する通信そのものをJavaScriptから強制停止できるわけではありません。
+入力タスクや総待機が期限切れになった場合、onErrorへ通知して保存を開始しません。保存actionの期限切れではsignalで中断を要求してonErrorへtimeoutを通知し、元のactionが実際に終了するまでbusyを維持します。中断要求は通信先の対応が必要です。
 
-保存のtimeoutは「サーバーで保存されなかった」とは限りません。busy=false/isResultUnknown=true/phase=uncertainにして再送を止めます。通信adapterが結果不明を検出したときも`UncertainActionError`をthrowしてください。通常のErrorは未保存が確定した失敗として扱うため、通信エラーを無条件で通常のErrorへ変換しないでください。
+APIがthrow/rejectした場合、共通側はonErrorへ通知し、処理終了後にbusyを解除します。API側で処理済みのエラーはaction内でcatchして終了すれば、共通側からの通知は行いません。結果照会や再送判断はAPI呼び出し側へ任せます。共通側の自動再送はありません。
 
 ```tsx
-const { runAfterTasks, busy, isResultUnknown, requestId, reconcile } =
-  useAsyncTasks((context) => adapter.save(values, context), {
-    onError: showError,
-  });
-// サーバーを実際に照会する関数を渡す。固定値を返して解除しない。
-const recovered = await reconcile(requestId, (id) => adapter.lookup(id));
+const { registerAsyncTask, runAfterTasks, busy, taskBusy } = useAsyncTasks(
+  (context) => saveApi(values, context),
+  { onError: (error) => setError(String(error)) },
+);
 ```
 
-reconcileは、元actionが実際にsettleし、同じrequestIdの保存結果がsaved/not-savedと確認できた場合だけtrueを返します。元Promiseが永久にpendingの場合や結果unknownの場合はisResultUnknownを維持します。ブラウザーの再読込をまたぐ結果不明状態の永続化はアプリ側で行ってください。
-
-requestIdは同じ保存要求内で変わりません。サーバーがIdempotency-Keyを保存・重複排除し、同じキーを異なるpayloadへ流用しない契約が必要です。複数タブの競合はサーバー側の楽観ロック等で扱います。HTTP adapterは契約例であり、実バックエンドを実装してはいません。自動再送は行いません。
+requestIdは保存要求ごとのIDとして通信層へ渡せます。ログ記録や必要に応じたAPI側の重複排除に利用してください。
 
 ## 最新stateを読む2つの方法
 
@@ -233,7 +229,7 @@ compositionイベント、isComposing、互換の229、Enterの押下/解放を�
 
 useAsyncFieldの入力はrunAfterTasks時にもdirtyを確定するため、blurが発生しなくても動作します。通常のonBlurからタスクを登録する場合も、既定の自動blurで登録が始まります。onBlur内では最初のawaitより前にregisterAsyncTaskを呼んでください。
 
-preventDefaultは元のイベント中に行います。SyntheticEventをactionへ渡しません。blur開始時に保存ボタンを消したりdisabled化するとclick自体が届かないことがあるため、runAfterTasks受付後にbusy/isResultUnknownで制御します。
+preventDefaultは元のイベント中に行います。SyntheticEventをactionへ渡しません。blur開始時に保存ボタンを消したりdisabled化するとclick自体が届かないことがあるため、runAfterTasks受付後にbusyで制御します。
 
 window.open/clipboard/file pickerなどユーザー操作が必要なAPIは遅延actionで保証できません。たとえば新しいウィンドウが必要なら、元のクリック内で`const popup = window.open('about:blank')`を実行し、戻り値nullも処理したうえで、その後の通信をrunAfterTasksへ渡します。ブラウザーの権限要件を回避する仕組みではありません。
 
@@ -242,10 +238,10 @@ window.open/clipboard/file pickerなどユーザー操作が必要なAPIは遅�
 - React 18.3/19、TypeScript、ES2022以上とDOMを想定します。SSRでは処理を開始しません。Next.jsでは利用先のクライアント境界を設定してください。
 - 必要なstate更新は通常優先度の確定処理で行います。startTransition/Suspense/Effectによる任意の将来の更新をすべて待つ保証はありません。
 - normalize/onCommit、beforeWait、エラーコールバックの契約を守ってください。onCommit/beforeWaitにasync関数を渡す誤用は検出しますが、既にその関数内で発生した副作用は取り消せません。
-- 任意のaction内部の直接的なUI更新・サーバー副作用も撤回できません。signalと結果照会に対応したadapterを利用してください。
-- Provider破棄は購読・タイマー・予約・managed入力を掃除します。StrictModeの再接続にも対応します。保存開始後の画面離脱は、同じScopeが残る場合には結果不明として保護します。
+- 任意のaction内部の直接的なUI更新・サーバー副作用も撤回できません。通信の中断・エラー表示・再送判断はAPI呼び出し側で扱ってください。
+- Provider破棄は購読・タイマー・予約・managed入力を掃除します。StrictModeの再接続にも対応します。保存開始後の画面離脱では中断を要求し、同じScopeが残る場合は元action終了までbusyを維持します。
 - Portal/Shadow DOMをまたぐcompositionやフォーカスの自動収集は保証しません。formイベントが届く範囲で利用してください。
-- サンプルはbusy/isResultUnknown中の編集をreadOnlyで抑止します。共通入力の世代管理は再編集されても古い結果を反映しません。
+- サンプルはbusy中の編集をreadOnlyで抑止します。共通入力の世代管理は再編集されても古い結果を反映しません。
 
 ## 開発と検証
 
@@ -280,7 +276,7 @@ const { runAfterTasks } = useAsyncTasks((context) => save(values, context), {
   blurActiveElement: false, // フォーカスを維持する場合
   beforeWait: () => setError(null), // 同期の準備処理。asyncにはしない
   waitTimeoutMs: null, // 入力タスクは無期限で待つ
-  actionTimeoutMs: 30000, // 保存開始から30秒。結果不明なら再送を止める
+  actionTimeoutMs: 30000, // 保存開始から30秒。期限超過時は中断要求し、元処理終了までbusyを維持
 });
 ```
 
@@ -333,8 +329,10 @@ registerAsyncTask(({ signal }) => validate(input, { signal }));
 `taskBusy`は、未完了の登録タスクが1件でもある間trueです。keyなしで登録したタスクやblocking:falseの背景処理も含み、同じProviderの全子孫で共有します。引数なしのuseAsyncTasksからも購読できます。
 
 ```tsx
-const { registerAsyncTask, runAfterTasks, busy, taskBusy, isResultUnknown } =
-  useAsyncTasks((context) => save(values, context), { onError: showError });
+const { registerAsyncTask, runAfterTasks, busy, taskBusy } = useAsyncTasks(
+  (context) => save(values, context),
+  { onError: showError },
+);
 // taskBusyは入力の処理中表示に使い、保存ボタンの無効化にはbusyを使います。
 ```
 
@@ -345,20 +343,18 @@ const { registerAsyncTask, runAfterTasks, busy, taskBusy, isResultUnknown } =
 | 入力タスク完了後、保存actionだけが実行中 | false    | true  |
 | すべて完了                               | false    | false |
 
-未確定入力(dirty)だけの状態はtaskBusyに含みません。タスクの取消・期限切れでは管理対象から外れるため、元のPromiseが残っていてもtaskBusyを解除します。blur直後に保存ボタンを無効化するとclickが届かなくなる場合があるので、ボタンのdisabledはbusy || isResultUnknownを使います。
+未確定入力(dirty)だけの状態はtaskBusyに含みません。タスクの取消・期限切れでは管理対象から外れるため、元のPromiseが残っていてもtaskBusyを解除します。blur直後に保存ボタンを無効化するとclickが届かなくなる場合があるので、ボタンのdisabledはbusyを使います。
 
 ## useAsyncTasksの戻り値
 
 戻り値の型はTaskActionResultとAsyncTasksSnapshotで公開し、各プロパティにも説明コメントを付けています。
 
-| 項目            | 意味と利用場面                                                            |
-| --------------- | ------------------------------------------------------------------------- |
-| runAfterTasks   | イベントから実行を予約するvoid関数。タスクとstate反映を待ってactionを呼ぶ |
-| busy            | 保存要求の入力待機・保存実行中。ボタンの無効化に使う                      |
-| taskBusy        | 未完了の登録タスクあり。入力処理中の表示に使う                            |
-| isResultUnknown | 保存結果が不明で再送を止めている状態                                      |
-| phase           | idle/preparing/waiting/ready/executing/uncertainの現在段階                |
-| requestId       | 保存要求の識別子。要求がない場合はnull。入力タスクのUUIDとは別            |
-| reconcile       | 元の保存終了後、実際の照会で結果が確定した場合だけ結果不明状態を解除する  |
+| 項目          | 意味と利用場面                                                            |
+| ------------- | ------------------------------------------------------------------------- |
+| runAfterTasks | イベントから実行を予約するvoid関数。タスクとstate反映を待ってactionを呼ぶ |
+| busy          | 保存要求の入力待機・保存実行中。ボタンの無効化に使う                      |
+| taskBusy      | 未完了の登録タスクあり。入力処理中の表示に使う                            |
+| phase         | idle/preparing/waiting/ready/executingの現在段階                          |
+| requestId     | 保存要求の識別子。要求がない場合はnull。入力タスクのUUIDとは別            |
 
-中心ファイルのuseTaskActionのreturnではspreadを使わず、全7項目を説明付きで列挙しています。
+中心ファイルのuseTaskActionのreturnではspreadを使わず、全5項目を説明付きで列挙しています。

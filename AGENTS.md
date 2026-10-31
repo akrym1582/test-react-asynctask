@@ -17,7 +17,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 ## APIの方針
 
 - 公開Hookは`useAsyncTasks`に統一します。引数なしは登録・共有状態参照用、actionとoptionsを指定した場合は`runAfterTasks`も返します。登録用呼び出しの戻り値の同一性を保ち、任意の入力Hookを不要に再mountさせないでください。
-- 実行名は`runAfterTasks`、保存結果不明の状態名は`isResultUnknown`です。`useAfterTasks`・`run`・`blocked`の互換APIは提供しません。
+- 実行名は`runAfterTasks`です。保存結果の分類・照会・再送判断はAPI呼び出し側で行います。`isResultUnknown`・`reconcile`・`UncertainActionError`は共通部品へ戻さないでください。`useAfterTasks`・`run`・`blocked`の互換APIは提供しません。
 
 - タスクの登録は`registerAsyncTask(factory, options?)`に一本化します。key省略時はUUIDを自動生成し、各登録を独立してすべて待機します。固定keyはoptions.keyで指定し、指定した場合だけ同じkeyの前の処理を置き換えます。factoryは`{ signal }`を受け取り、結果を返します。state反映は同期的な`options.onCommit`へ分けます。
 - 旧APIの互換性は維持しません。開始済みPromiseを直接渡す形式、`register`/`track`の別名、TrackedInputのasync `onBlur`形式、削除したexportを復活させないでください。
@@ -34,7 +34,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 - 単純なPromise待機だけでは古いclosureは更新されません。タスク完了後に再レンダーし、そのレンダーに対応するactionを呼びます。
 - 入力の再編集、取消、期限切れ、unmount、同じkeyでの再登録後は、古い結果をonCommitへ渡しません。
 - 待機中に追加されたタスクとdirty入力も保存前に確認します。
-- 保存要求の重複をProvider単位で防ぎます。保存結果が不明な場合はisResultUnknownを維持し、実際の結果照会で回復します。
+- 保存要求の重複をProvider単位で防ぎます。actionの成功・失敗後にbusyを解除します。保存期限ではsignalで中断要求とonError通知を行い、元actionの終了まではbusyを維持します。API側でcatch済みなら共通側は再通知しません。
 - React 18.3/19、StrictMode、SSRに対応します。破棄されたレンダーの値をlatest getterから公開しません。
 - SyntheticEventの必要な値はイベント中に取得し、preventDefaultも同期的に実行します。
 - FirefoxのPlaywright `fill()`はcompositionイベントを発生させるため、通常のキー入力を検証するケースは`pressSequentially()`を使います。IMEケースは分けます。合成イベントを実OSの日本語IME検証済みとは扱いません。

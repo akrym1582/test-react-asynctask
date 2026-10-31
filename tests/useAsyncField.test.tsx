@@ -39,14 +39,11 @@ it.each([false, true])(
         timeoutMs: override ? null : undefined,
         onCommit: setValue,
       });
-      const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(
-        () => save(value),
-        {
-          onError: error,
-          waitTimeoutMs: override ? null : undefined,
-          actionTimeoutMs: override ? null : undefined,
-        },
-      );
+      const { runAfterTasks, busy } = useAsyncTasks(() => save(value), {
+        onError: error,
+        waitTimeoutMs: override ? null : undefined,
+        actionTimeoutMs: override ? null : undefined,
+      });
       return (
         <>
           <input
@@ -58,9 +55,7 @@ it.each([false, true])(
             onBlur={field.commit}
           />
           <button onClick={runAfterTasks}>save</button>
-          <output>
-            {busy ? "busy" : isResultUnknown ? "isResultUnknown" : "idle"}
-          </output>
+          <output>{busy ? "busy" : "idle"}</output>
         </>
       );
     }

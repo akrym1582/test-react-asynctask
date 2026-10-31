@@ -13,7 +13,7 @@ export function LatestStateExample({
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const getValue = useLatestCommitted(value);
-  const { runAfterTasks, busy, isResultUnknown } = useAsyncTasks(
+  const { runAfterTasks, busy } = useAsyncTasks(
     async () => {
       await check();
       // check待機中にcommitされた編集を含めて読む。
@@ -28,7 +28,7 @@ export function LatestStateExample({
         value={value}
         onChange={(event) => setValue(event.currentTarget.value)}
       />
-      <button onClick={runAfterTasks} disabled={busy || isResultUnknown}>
+      <button onClick={runAfterTasks} disabled={busy}>
         確認して保存
       </button>
       <p>{error}</p>

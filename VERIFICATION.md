@@ -1,100 +1,37 @@
 # 検証結果
 
-## CIのFirefoxエラーと修正
+## 現在の責務
 
-2026-10-31時点の失敗は、Firefoxの通常Enter送信テスト1件でした。React 18/19の単体テスト・型チェックは成功していました。
+共通部品は登録タスクの待機、state反映後のaction実行、エラー通知、実行状態の管理を担当します。保存結果の分類・照会・再送判断はAPI呼び出し側へ任せます。reconcile・isResultUnknown・UncertainActionError・結果照会用UIは削除しました。
 
-Playwright 1.58.2のFirefox用`fill()`は内部でcompositionイベントを発生させます。その直後のEnterが、変換確定の抑止対象になっていました。通常入力のテストを`pressSequentially()`へ変更し、IMEテストのイベント操作と分離しました。失敗時にレポート・トレース・スクリーンショットをActionsのArtifactsへ保存する設定も追加しています。
+APIがthrow/rejectした場合はonErrorへ通知し、action終了後にbusyを解除します。API側でcatchして処理済みなら、共通側は再通知しません。保存期限ではsignalで中断を要求してonErrorへtimeoutを通知し、元のactionが実際に終了するまでbusyを維持します。元処理が終了すれば再実行できます。
 
-[修正コミット1422700のCI](https://github.com/akrym1582/test-react-asynctask/actions/runs/41191777219)では、React 18/19の両ジョブとChromium/Firefox/WebKitのブラウザージョブがすべて成功しました。ブラウザーは4ケース×3種類の12件です。
+## ローカル実行済み
 
-## 中心ファイルと任意部品の分離
+| 検証       | 結果                                                          |
+| ---------- | ------------------------------------------------------------- |
+| ESLint     | 成功、警告0件                                                 |
+| Prettier   | 整形・チェック成功                                            |
+| TypeScript | 型チェック成功                                                |
+| Vitest     | 57件成功                                                      |
+| コピー配布 | 中心単独・入力Hook・入力UI・getter単独・送信補助の5構成で成功 |
+| Vite       | 本番ビルド成功                                                |
 
-中心の`AsyncTasks.tsx`から入力Hook・入力UI・formイベント補助へのimportおよび再exportを除きました。`useAsyncField`と`useTaskField`は`useAsyncField.ts`、UIは`TrackedInput.tsx`、form補助は`useAsyncSubmit.ts`です。
+結果照会の旧テストは、新しい責務に対応する保存期限・保存中unmount・API側のエラー処理の検証へ置き換えました。削除したAPIが型としても利用できないことをコピー検証で確認しています。
 
-登録APIは`registerAsyncTask(key, factory, options?)`へ統一し、使用例と既存テストを更新しました。開始済みPromiseの旧形式、旧名、TrackedInputのasync onBlur形式は提供しません。
+## 確認している主な動作
 
-| 検証                             | 分離後のローカル実行結果                                         |
-| -------------------------------- | ---------------------------------------------------------------- |
-| React 19.3.1 / TypeScript 5.9.3  | 型チェック成功                                                   |
-| React 19.3.1 / Vitest 3.2.7      | 39件成功                                                         |
-| React 18.3.1 / @types/react 18系 | 別ディレクトリで型チェック・同じ39件・4構成のコピー検証成功      |
-| Vite 6.4.5                       | 本番ビルド成功                                                   |
-| コピー配布                       | 中心単独・入力Hook・入力UI・送信補助の4構成で型チェック成功      |
-| 削除APIの型検証                  | 旧形式・別名・中心からの任意Hook再exportを受け付けないことを確認 |
+- 非同期blurの処理中にclickが届いても、完了前には保存せず、onCommitのstate反映後に更新済みの値で1回だけ保存すること。通常の先行blurと、clickからの自動blurの両方をStrictMode下で検証します。
+- key省略のUUID登録が互いを置き換えず、別の子孫から登録したタスクと待機途中に追加されたタスクも全件待機すること。
+- taskBusyが未完了の登録タスクを示し、busyとは独立して全子孫に共有されること。成功・失敗・取消・期限切れで状態が解除されること。
+- 期限省略時は入力・総待機・保存とも無期限であり、有限期限と個別null上書きも使えること。
+- 入力の再編集・取消・期限切れ・unmount後の古い結果を反映しないこと。項目別のエラー管理、再確定、動的な入力の破棄が動くこと。
+- 最新値getterがcommit済みの値だけを読み、Suspenseで未確定の値を公開しないこと。
+- SSRでDOM参照エラー・Effect警告・action開始がないこと。
+- 日本語のテスト名と「確認する状況」「期待する結果」の説明が、単体・結合・ブラウザーテストにあること。
 
-テストでは、期限とnullによる無期限待機、取消後の遅延完了、背景処理、入力の世代切替、dirty確定、項目別エラー、動的項目の破棄、保存結果不明と照会、冪等性fake、最新値getter、IME合成イベント、保存snapshot、SSRを確認しています。無期限待機の1時間経過はfake timerで検証します。
+## CIと別途必要な確認
 
-最新コミットのCI結果は[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)を参照してください。CIではReact 18/19それぞれで型・56件のテスト・4構成のコピー検証を実行し、3種類のブラウザーで操作を検証します。
+[GitHub Actions](https://github.com/akrym1582/test-react-asynctask/actions/workflows/test.yml)ではReact 18/19それぞれでlint・整形・型・全テスト・コピー検証を実行します。ブラウザージョブはChromium/Firefox/WebKitで4ケースずつ、計12件を実行します。
 
-## ローカル環境と別途必要な確認
-
-この作業環境ではブラウザーZIPの取得・展開に失敗する場合があります。Firefoxの取得は代替配信元で成功しましたが、ページ作成がタイムアウトしたため、ローカルの実ブラウザー検証は未完了です。上記ブラウザーの成功結果はGitHub Actionsで確認したものです。
-
-次の範囲は未検証です。
-
-- Windows日本語IME、macOS日本語入力とSafari等での実OSのIME操作。合成compositionイベントのテストとは区別します。
-- 実バックエンドの冪等性キー・結果照会・楽観ロック。adapterは契約例です。
-- Portal/Shadow DOM、利用先の画面遷移・reset・独自入力部品との結合。
-
-## 公開Hookの統合
-
-`useAsyncTasks(action, options)`から`registerAsyncTask`、`runAfterTasks`、`busy`、`isResultUnknown`等を取得できる形へ統合しました。引数なしでは登録・共有状態の参照ができ、戻り値の同一性を維持します。旧Hookと旧プロパティ名は削除しています。
-
-同じHookで登録したタスクのstate反映後に保存されること、登録専用の別コンポーネントにもbusyと保存結果不明の状態が伝わることを追加検証し、テストは41件になりました。React 19の型チェック・41件・4構成コピー検証・本番ビルドが成功しています。入力待機期限、保存期限、結果不明と照会の既存テストも新しいAPI名で実行しています。
-
-React 18.3.1でも型チェック・同じ41件・4構成のコピー検証が成功しました。
-
-## 自動フォーカス解除
-
-blurActiveElementを追加し、既定で重複排除後・beforeWait前に現在のHTML要素をblurします。falseではフォーカスを維持します。サンプルの手動blurを削除し、各引数・オプションのJSDocを拡充しました。
-
-省略時・true・falseの動作、blurからの再入、登録されたタスクのstate反映待ち、blur失敗時の通知とbusy解除を検証しています。React 18/19で各45件、型チェック・4構成のコピー検証が成功し、本番ビルドも成功しました。
-
-## タイムアウトの既定値
-
-入力タスク・総待機・保存の3種類をすべて既定null（無期限）へ変更しました。Providerの期限指定を省略した例へ更新し、コメント・README・AGENTS.mdも揃えています。
-
-期限指定なしの入力待機と保存で各1時間経過してもタイムアウトしないこと、有限期限を設定したProviderに対する個別null上書き、既存の有限期限時の取消・結果不明処理を確認しました。React 18/19で各46件、型・4構成コピー検証、本番ビルドが成功しています。
-
-## ESLint・Prettier
-
-ESLint 10とtypescript-eslintの推奨ルール、React Hooksの呼び出し順序・依存配列検査を導入しました。SSR用useCommitEffectも依存検査の対象です。Prettierでソース・設定・Markdownを整形し、ESLintと競合する整形ルールはeslint-config-prettierで調整しています。
-
-Effectから参照するfail/prepareをuseCallbackで安定させて依存配列へ追加し、テストのanyをActionContextに置き換えました。lint（警告0件）、整形チェック、型チェック、46件のテスト、4構成のコピー配布検証、本番ビルドが成功しました。CIのReact 18/19両ジョブにもlint・整形チェックを追加しています。
-
-## テスト構成の整理
-
-単体テストをsrcのファイル名に対応する5ファイルへ整理し、結合テストはtests/integration/の3ファイルへ移しました。合計46件（単体35件、結合11件）を維持しています。整理後もlint・整形チェック・型チェック・全46件・4構成コピー検証・本番ビルドが成功しています。
-
-## テストケースの日本語説明
-
-単体・結合・ブラウザーテストの各ケースに「確認する状況」と「期待する結果」を追記し、テスト名・グループ名も日本語へ揃えました。期限や自動blurのパラメーターによる違い、遅い結果の破棄、保存結果不明の回復条件、合成IME・fake adapterの検証範囲を説明しています。
-
-変更後もlint・整形チェック・46件のテストが成功し、ブラウザー12件の列挙を確認しました。TypeScriptの構文木を比較し、9ファイルのテスト本体がテスト名・コメントを除いて同一であることも確認しています。
-
-## 当初のblur・click要件の明示検証
-
-tests/AsyncTasks.test.tsxへ、非同期blurの処理中にclickが到着するケースを追加しました。clickより先にblurを開始する場合と、フォーカスが残ったclickから既定の自動blurを行う場合の2パターンです。
-
-StrictMode下で未確定の入力値を用意し、blurのPromiseを意図的に未完了に保ちます。click後も保存されずbusyを維持し、Promise完了とonCommitによるstate更新を経て、正規化後の値で1回だけ保存することを確認しました。イベント順序も検証しています。lint・整形・型チェック・全48件のテストが成功しました。
-
-## key省略とUUIDによる全件管理
-
-登録APIをregisterAsyncTask(factory, options?)へ変更しました。options.keyを省略するとcrypto.randomUUIDで独立したIDを作り、複数の登録をすべて待機します。UUID APIがない環境では時刻と連番を使います。固定keyはoptions.keyで指定でき、入力の世代管理には引き続き固定keyを利用します。
-
-keyなしの2タスクが互いを置き換えず両方のonCommitを実行すること、別々の子孫から登録したタスクとclick後に追加したタスクを全件待って、全項目の更新後stateで保存することを検証しました。当初のblur→click要件の2パターンもkey省略で検証しています。全50件、lint・整形・型チェック・4構成のコピー検証・本番ビルドが成功しました。
-
-## taskBusyによる登録タスクの実行状態
-
-taskBusyを追加し、未完了の登録タスクが1件以上ある間trueとしました。背景タスクも含み、全子孫で共有します。busyは保存要求の待機・実行状態を維持します。保存actionだけの実行、dirty入力、取消・期限切れ後の元PromiseはtaskBusyに含みません。
-
-成功・失敗・取消・期限切れの各終了時に解除されること、登録専用Hookにも状態が伝わること、入力処理→保存待機→保存実行→終了の各段階でbusyと独立して変わることを検証しました。全55件、lint・整形・型チェック・4構成コピー検証・本番ビルドが成功しました。
-
-## 戻り値の説明と任意機能の分離
-
-useTaskActionの戻り値を全7項目の明示列挙へ変更し、各項目の意味・状態変化・用途をコメントに記載しました。公開型AsyncTasksSnapshotとTaskActionResultにも説明を付けています。
-
-入力の世代・dirty・エラー・所有者の管理本体をuseAsyncField.tsへ移し、中心ファイルには任意機能の準備・待機判定・再試行・破棄を呼ぶ接続契約だけを残しました。公開のuseLatestCommittedは任意ファイルへ分離し、Providerなしで単独コピー可能です。中心ファイルは任意ファイルをimport・再exportしません。
-
-テストも実装と同じファイルへ移し、最新値getterと保存処理の連携は結合テストへ配置しました。任意機能の初期化・再試行・Scope破棄を検証し、全56件が成功しています。lint・整形・型チェック・5構成のコピー検証・本番ビルドも成功しました。
+この作業環境の実ブラウザー起動には取得・起動上の制約があるため、ブラウザーの成功はCIで確認します。Windows/macOSの実OSの日本語IME、実バックエンドのエラー処理や重複排除、Portal/Shadow DOM・利用先の画面遷移との結合は別途確認が必要です。合成compositionイベントやメモリ上のAPI例を、それらの検証済みとは扱いません。

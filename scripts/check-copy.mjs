@@ -12,6 +12,8 @@ const variants = [
 import { useAsyncTasks } from "./AsyncTasks";
 // @ts-expect-error 分離されていた旧Hookは公開しない
 import { useAfterTasks } from "./AsyncTasks";
+// @ts-expect-error 保存結果を分類する専用例外は共通部品から削除
+import { UncertainActionError } from "./AsyncTasks";
 // @ts-expect-error 入力Hookは中心ファイルから再exportしない
 import { useAsyncField } from "./AsyncTasks";
 // @ts-expect-error 入力の購読Hookも任意ファイルに置く
@@ -47,6 +49,10 @@ function Example() {
   executor.run();
   // @ts-expect-error 旧状態名は提供しない
   executor.blocked;
+  // @ts-expect-error 結果不明フラグはAPI呼び出し側で管理する
+  executor.isResultUnknown;
+  // @ts-expect-error 結果照会はAPI呼び出し側で行う
+  executor.reconcile("id", async () => "saved");
   return <button onClick={runAfterTasks} disabled={busy}>save</button>;
 }`,
   },

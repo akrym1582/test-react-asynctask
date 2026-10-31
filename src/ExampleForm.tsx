@@ -18,9 +18,6 @@ type Props = {
     context: { signal: AbortSignal },
   ) => Promise<string>;
   save: (values: Values, context: ActionContext) => Promise<void>;
-  lookupRequest?: (
-    requestId: string,
-  ) => Promise<"saved" | "not-saved" | "unknown">;
 };
 
 /**
@@ -43,31 +40,23 @@ function FieldError({ taskKey }: { taskKey: string }) {
   ) : null;
 }
 
-function Fields({
-  normalizeName,
-  normalizeAddress,
-  save,
-  lookupRequest,
-}: Props) {
+function Fields({ normalizeName, normalizeAddress, save }: Props) {
   const [values, setValues] = useState<Values>({ name: "", address: "" });
   const [error, setError] = useState<string | null>(null);
-  const { runAfterTasks, busy, isResultUnknown, requestId, reconcile } =
-    useAsyncTasks(
-      // valuesはactionを開始するレンダーでのsnapshotです。
-      // signalとrequestIdを通信層まで渡すと、中断・結果照会に利用できます。
-      async (context) => {
-        await save(values, context);
+  const { runAfterTasks, busy } = useAsyncTasks(
+    // valuesはactionを開始するレンダーでのsnapshotです。
+    // signalとrequestIdを通信層まで渡すと、中断・ログ記録に利用できます。
+    async (context) => {
+      await save(values, context);
+    },
+    {
+      beforeWait: () => {
+        setError(null);
       },
-      {
-        beforeWait: () => {
-          setError(null);
-        },
-        onError: (error) =>
-          setError(
-            error instanceof Error ? error.message : "処理に失敗しました",
-          ),
-      },
-    );
+      onError: (error) =>
+        setError(error instanceof Error ? error.message : "処理に失敗しました"),
+    },
+  );
   // normalizeとstate反映をHookへ渡します。DOMには通常のinputを使います。
   const nameField = useAsyncField({
     taskKey: "name",
@@ -88,7 +77,7 @@ function Fields({
         氏名
         <input
           value={values.name}
-          readOnly={busy || isResultUnknown}
+          readOnly={busy}
           onChange={(event) => {
             const name = event.currentTarget.value;
             nameField.change(name);
@@ -102,7 +91,7 @@ function Fields({
         住所
         <input
           value={values.address}
-          readOnly={busy || isResultUnknown}
+          readOnly={busy}
           onChange={(event) => {
             const address = event.currentTarget.value;
             addressField.change(address);
@@ -112,34 +101,9 @@ function Fields({
         />
       </label>
       <FieldError taskKey="address" />
-      <button type="submit" disabled={busy || isResultUnknown}>
+      <button type="submit" disabled={busy}>
         {busy ? "処理中…" : "保存"}
       </button>
-      {isResultUnknown && (
-        <p role="status">
-          保存結果が不明です。再送せず、結果を確認してください。
-        </p>
-      )}
-      {isResultUnknown && lookupRequest && (
-        <button
-          type="button"
-          onClick={() => {
-            if (!requestId) return;
-            void reconcile(requestId, lookupRequest).then(
-              (resolved) => {
-                setError(
-                  resolved
-                    ? "保存結果を確認しました"
-                    : "処理中または結果不明のため、再送を保留しています",
-                );
-              },
-              () => setError("結果の照会に失敗しました"),
-            );
-          }}
-        >
-          保存結果を確認
-        </button>
-      )}
       {error && <p role="alert">{error}</p>}
     </form>
   );
