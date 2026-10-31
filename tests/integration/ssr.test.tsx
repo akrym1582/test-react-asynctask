@@ -7,7 +7,9 @@ import {
   useAsyncTasks,
   useLatestCommitted,
 } from "../../src/AsyncTasks";
-it("renders on the server without accessing window/document or starting actions", () => {
+// 確認する状況: node環境でProvider・TrackedInput・最新値getter・保存HookをrenderToStringします。
+// 期待する結果: serverの文字列を描画でき、保存処理を呼ばずconsole.errorへの警告も発生しません。
+it("SSRではDOM参照エラーやEffect警告を出さず保存処理も開始しない", () => {
   const action = vi.fn();
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   function Form() {

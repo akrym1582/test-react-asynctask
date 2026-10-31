@@ -6,7 +6,9 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-it("blocks conversion Enter, permits next Enter and explicit click", () => {
+// 確認する状況: composition開始から確定までのEnter・submit・keyupを順に送り、別のEnterと保存クリックを試します。
+// 期待する結果: 変換確定に伴う送信は抑止し、その後の独立したEnterと明示クリックでのみ保存処理を呼びます。
+it("IMEの変換確定Enterでは保存せず別のEnterや明示クリックを許可する", () => {
   const runAfterTasks = vi.fn();
   function Form() {
     return (

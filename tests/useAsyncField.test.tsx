@@ -16,8 +16,10 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
+// 確認する状況: 期限省略と、Providerの5ms設定を個別nullで上書きする場合を比較し、入力待機と保存で各1時間進めます。
+// 期待する結果: 両設定ともエラーなくbusyを維持し、入力確定後に最新値を保存します。保存完了時にidleへ戻り、タイマーも残しません。
 it.each([false, true])(
-  "waits indefinitely with default deadlines or explicit null overrides (override=%s)",
+  "既定の無期限と個別null上書きで入力待機・保存の期限を無効化する（上書き=%s）",
   async (override) => {
     vi.useFakeTimers();
     const normalize = deferred<string>();
@@ -85,7 +87,9 @@ it.each([false, true])(
     expect(vi.getTimerCount()).toBe(0);
   },
 );
-it("a native input ignores a previous edit even before the next blur", async () => {
+// 確認する状況: Aの処理を開始してからBへ編集し、Bのblurより先にAの結果を返します。
+// 期待する結果: 表示値Bを古い結果で上書きせず、保存要求によるBの確定後に最新結果だけを保存します。
+it("通常inputでも次のblur前の再編集で古い結果を無効化する", async () => {
   const old = deferred<string>();
   const current = deferred<string>();
   const saved = vi.fn();

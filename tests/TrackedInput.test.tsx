@@ -17,7 +17,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-describe("managed UI", () => {
+describe("入力UIの確定・エラー表示・破棄", () => {
   function Form({
     normalize,
     onSave,
@@ -47,7 +47,9 @@ describe("managed UI", () => {
       </>
     );
   }
-  it("flushes focused dirty input from runAfterTasks without requiring blur", async () => {
+  // 確認する状況: TrackedInputを編集し、テスト側からblurを配送せずに保存を要求します。
+  // 期待する結果: 共通処理が未確定入力を確定し、正規化完了後の値で保存を1回実行します。
+  it("保存要求時に未確定の入力を確定して正規化後の値を保存する", async () => {
     const d = deferred<string>();
     const save = vi.fn();
     render(
@@ -66,7 +68,9 @@ describe("managed UI", () => {
       expect(save).toHaveBeenCalledExactlyOnceWith("normalized"),
     );
   });
-  it("shows field failure immediately, before runAfterTasks", async () => {
+  // 確認する状況: TrackedInputの正規化処理を失敗させ、blurだけを発生させます。
+  // 期待する結果: runAfterTasksを呼ばなくてもuseTaskFieldがerrorを通知し、画面へ表示できます。
+  it("入力失敗は保存ボタンを押す前に項目状態へ反映する", async () => {
     render(
       <AsyncTasksProvider>
         <Form
@@ -84,7 +88,9 @@ describe("managed UI", () => {
       expect(screen.getByRole("status").textContent).toBe("error"),
     );
   });
-  it("drops late writes after field and provider unmount", async () => {
+  // 確認する状況: StrictMode内の入力で処理を開始し、画面をunmountした後に処理を完了させます。
+  // 期待する結果: 削除済み入力のonCommitは呼ばれず、遅い結果による書き込みを防ぎます。
+  it("入力とProviderの削除後に返った結果をstateへ反映しない", async () => {
     const d = deferred<string>();
     const commit = vi.fn();
     const view = render(

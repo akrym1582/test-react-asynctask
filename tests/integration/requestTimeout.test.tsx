@@ -15,7 +15,9 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-it("releases a timed-out wait, cancels managed input, and never saves late results", async () => {
+// 確認する状況: TrackedInputの確定が終わらないまま総待機期限10msを超え、その後に元処理を成功させます。
+// 期待する結果: エラーを1回通知してbusyを解除します。遅い結果でも保存は始まらず、表示中の入力値も上書きしません。
+it("入力の総待機期限で要求を解除し遅い結果から保存を開始しない", async () => {
   vi.useFakeTimers();
   const task = deferred<string>();
   const save = vi.fn();

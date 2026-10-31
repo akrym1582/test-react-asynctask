@@ -64,8 +64,10 @@ function setup(task: Promise<string>, action = vi.fn(), onError = vi.fn()) {
   return { ...view, action, onError };
 }
 
-describe("useAsyncTasks", () => {
-  it("invokes the new render callback once, and stays busy until action completes", async () => {
+describe("入力待機から保存までの連携", () => {
+  // 確認する状況: 入力待機中に保存を連打し、入力の確定と保存の完了を別々に制御します。
+  // 期待する結果: 入力確定後にnewで保存を1回実行し、保存中はボタンを無効化して完了後に操作可能へ戻します。
+  it("入力完了後の新しいstateで保存を1回だけ行い完了までbusyを維持する", async () => {
     const input = deferred<string>();
     const saving = deferred<void>();
     const action = vi.fn(() => saving.promise);
@@ -88,7 +90,9 @@ describe("useAsyncTasks", () => {
       ),
     );
   });
-  it("does not execute after a task fails", async () => {
+  // 確認する状況: 入力処理の未完了中に保存を要求し、その入力処理を失敗させます。
+  // 期待する結果: onErrorを1回呼び、保存actionは呼びません。
+  it("入力タスクが失敗した場合は保存を開始しない", async () => {
     const task = deferred<string>();
     const { action, onError } = setup(task.promise);
     fireEvent.click(screen.getByText("blur"));
@@ -99,7 +103,9 @@ describe("useAsyncTasks", () => {
     await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
     expect(action).not.toHaveBeenCalled();
   });
-  it("cancels a pending action on unmount", async () => {
+  // 確認する状況: 入力タスクを待つ保存要求を出し、unmount後にその入力を完了させます。
+  // 期待する結果: 完了通知が遅れて届いても、削除済み画面のactionは呼びません。
+  it("画面削除後は待機中だった保存を実行しない", async () => {
     const task = deferred<string>();
     const { action, unmount } = setup(task.promise);
     fireEvent.click(screen.getByText("blur"));
@@ -110,7 +116,9 @@ describe("useAsyncTasks", () => {
     });
     expect(action).not.toHaveBeenCalled();
   });
-  it("reports action failures and releases busy", async () => {
+  // 確認する状況: 保存action自身が通常のErrorで失敗する状況を作ります。
+  // 期待する結果: onErrorへ1回通知し、保存ボタンを再び操作可能にします。
+  it("保存処理の失敗を通知してbusyを解除する", async () => {
     const action = vi.fn(async () => {
       throw new Error("save failed");
     });
@@ -121,7 +129,9 @@ describe("useAsyncTasks", () => {
       false,
     );
   });
-  it("forces focused input blur on submit, then saves normalized values", async () => {
+  // 確認する状況: 氏名を編集してフォーカスを残したままsubmitし、正規化処理を後から完了させます。
+  // 期待する結果: 正規化前は保存せず、確定済み氏名と住所を1回だけ保存します。requestIdとsignalも保存処理へ渡します。
+  it("入力にフォーカスが残ったフォーム送信でも確定後の値を保存する", async () => {
     const task = deferred<string>();
     const save = vi.fn(async () => {});
     render(
@@ -153,8 +163,10 @@ describe("useAsyncTasks", () => {
   });
 });
 
-describe("additional edge cases", () => {
-  it("waits again when a layout effect registers another input task before execution", async () => {
+describe("追加タスク・重複要求・Provider間の独立性", () => {
+  // 確認する状況: 最初の入力が確定したlayout effectで、別の入力タスクを追加します。
+  // 期待する結果: 最初の完了だけで保存を開始せず、追加タスクの完了後にsecondの値で保存します。
+  it("再レンダー中に追加されたタスクも保存開始前に待ち直す", async () => {
     const first = deferred<string>();
     const second = deferred<string>();
     const action = vi.fn();
@@ -214,7 +226,9 @@ describe("additional edge cases", () => {
     );
   });
 
-  it("blocks a second hook within a provider even when runAfterTasks is called twice synchronously", async () => {
+  // 確認する状況: 同じイベント内で2つのHookのrunAfterTasksを連続して呼びます。
+  // 期待する結果: 先に受け付けたactionだけを開始し、後のactionは実行しません。
+  it("同じProviderの別Hookから同時に要求しても保存を1つに制限する", async () => {
     const saving = deferred<void>();
     const first = vi.fn(() => saving.promise);
     const second = vi.fn();
@@ -243,7 +257,9 @@ describe("additional edge cases", () => {
     await act(async () => saving.resolve());
   });
 
-  it("reports a synchronous beforeWait failure without starting the action", async () => {
+  // 確認する状況: 保存準備のbeforeWaitが例外を投げる状態でrunAfterTasksを実行します。
+  // 期待する結果: 同じ例外をonErrorへ1回通知し、actionを呼ばずボタンを操作可能に戻します。
+  it("beforeWaitの同期例外で保存を始めず要求を解除する", async () => {
     const action = vi.fn();
     const onError = vi.fn();
     const error = new Error("before");
@@ -273,7 +289,9 @@ describe("additional edge cases", () => {
     );
   });
 
-  it("keeps independent providers independent", async () => {
+  // 確認する状況: Providerを2つ並べ、片方を入力待機中にしたまま、もう片方でも保存を要求します。
+  // 期待する結果: 待機中の側では保存が始まらず、別Provider側ではその待機に影響されず保存を開始できます。
+  it("異なるProviderの待機や保存を互いに干渉させない", async () => {
     const neverUntilReleased = deferred<string>();
     const first = vi.fn();
     const second = vi.fn();
