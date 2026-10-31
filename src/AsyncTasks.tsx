@@ -1,7 +1,8 @@
 /**
  * Reactの非同期入力確定を、保存などのイベント処理より先に完了させる共通部品です。
- * ContextとHookはこの1ファイルだけで利用できます。React以外の実行時依存はありません。
- * 任意のUI部品TrackedInputは別ファイルです。このファイルからは参照しません。
+ * Context・タスク登録・useAfterTasksはこの1ファイルだけで利用できます。
+ * 任意の入力Hook・TrackedInput・useAsyncSubmitは別ファイルです。このファイルからは参照しません。
+ * React以外の実行時依存はありません。
  *
  * 基本の流れ:
  * 1. useAsyncField（またはTrackedInput）が編集をdirty（未確定）として記録する。
@@ -9,7 +10,7 @@
  * 3. 最新の編集の結果だけをonCommitでReactのstateへ反映する。
  * 4. useAfterTasksが再レンダーを経由し、新しいstateを参照するactionを呼ぶ。
  *
- * 注意: 任意の古いonBlurの中で直接呼ばれたsetStateは取り消せません。
+ * 注意: 非同期処理の中で直接呼ばれたsetStateは取り消せません。
  * 競合防止が必要な入力は normalize/onCommit 形式を使ってください。
  */
 import {
@@ -21,8 +22,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type FormEvent,
-  type KeyboardEvent,
   type ReactNode,
 } from "react";
 
@@ -183,7 +182,7 @@ type ActionOwner = {
  * Reactに依存しない状態管理部分なので、単体テストでは直接使えます。
  * @example
  * const store = createTaskStore({ taskTimeoutMs: 5000 });
- * store.registerAsyncTask(loadSomething(), "input");
+ * store.registerAsyncTask("input", () => loadSomething());
  * await store.wait(); // 成功時だけここに進む。Reactのcommitを待つ用途ではない。
  */
 export function createTaskStore(config: TasksConfig = {}) {
@@ -232,7 +231,7 @@ export function createTaskStore(config: TasksConfig = {}) {
    * 通信開始前にsignalを準備できるfactory形式。同期throwもタスクの失敗へ変換します。
    * 同じkeyの旧処理はsuperseded（新しい処理で置換された）にして結果を無効化します。
    * @example
-   * const handle = tasks.track("name", ({ signal }) =>
+   * const handle = tasks.registerAsyncTask("name", ({ signal }) =>
    *   fetch("/api/name", { signal }).then(response => response.json()),
    *   { timeoutMs: 5000 },
    * );
@@ -240,7 +239,7 @@ export function createTaskStore(config: TasksConfig = {}) {
    * if (result.status === "fulfilled") console.log(result.value);
    * // handle.cancel() は中断要求です。サーバー側の処理停止までは保証しません。
    */
-  function track<T>(
+  function registerAsyncTask<T>(
     key: string | symbol,
     factory: (context: { signal: AbortSignal }) => T | Promise<T>,
     options: TaskOptions<T> = {},
@@ -364,16 +363,20 @@ export function createTaskStore(config: TasksConfig = {}) {
         const ownGeneration = generation;
         const current = getConfig();
         set({ phase: "pending" });
-        handle = track(key, (context) => current.normalize(draft, context), {
-          timeoutMs: current.timeoutMs,
-          onCommit(result) {
-            if (!alive || generation !== ownGeneration) return;
-            if (typeof result !== "string")
-              throw new TypeError("normalizeはstringを返してください");
-            synchronous(getConfig().onCommit(result), "onCommit");
-            draft = result;
+        handle = registerAsyncTask(
+          key,
+          (context) => current.normalize(draft, context),
+          {
+            timeoutMs: current.timeoutMs,
+            onCommit(result) {
+              if (!alive || generation !== ownGeneration) return;
+              if (typeof result !== "string")
+                throw new TypeError("normalizeはstringを返してください");
+              synchronous(getConfig().onCommit(result), "onCommit");
+              draft = result;
+            },
           },
-        });
+        );
         void handle.result.then((result) => {
           if (!alive || generation !== ownGeneration) return;
           if (result.status === "fulfilled") set(cleanField);
@@ -469,19 +472,12 @@ export function createTaskStore(config: TasksConfig = {}) {
   }
   const store = {
     defaults,
-    track,
+    registerAsyncTask,
     wait,
     flushFields,
     hasPending,
     assertSuccess,
     mountField,
-    /**
-     * 旧API: 開始済みPromiseを登録します。元の処理は強制停止できません。
-     * @example registerAsyncTask(handleBlur(value), "name");
-     */
-    registerAsyncTask(task: Promise<unknown>, key: string | symbol = Symbol()) {
-      track(key, () => task);
-    },
     /** 全体エラーを解除し、managed入力の失敗は再確定します。通常は項目の再編集で回復します。 */
     clearErrors() {
       failures.clear();
@@ -507,7 +503,6 @@ export function createTaskStore(config: TasksConfig = {}) {
       };
     },
     getSnapshot: () => actionSnapshot,
-    getBusy: () => actionSnapshot.busy,
     beginAction(): ActionOwner | null {
       if (owner || disposed) return null;
       owner = {
@@ -562,10 +557,6 @@ export function createTaskStore(config: TasksConfig = {}) {
       publishAction();
       return true;
     },
-    tryAcquire() {
-      const current = store.beginAction();
-      return current ? () => store.release(current) : null;
-    },
     attach() {
       leases++;
       disposed = false;
@@ -609,7 +600,7 @@ export function AsyncTasksProvider({
  * Provider内のタスク操作を取得します。Promiseの全自動検出は行いません。
  * @example
  * const tasks = useAsyncTasks();
- * tasks.track("suggestions", ({ signal }) => fetch("/api/suggestions", { signal }), {
+ * tasks.registerAsyncTask("suggestions", ({ signal }) => fetch("/api/suggestions", { signal }), {
  *   blocking: false, // 保存対象のデータとは無関係な背景処理
  * });
  */
@@ -635,20 +626,6 @@ export function useLatestCommitted<T>(value: T): () => T {
     ref.current = value;
   });
   return useCallback(() => ref.current, []);
-}
-/**
- * blur失敗を保存ボタンが押される前から表示するための購読Hookです。
- * @example
- * const field = useTaskField("name");
- * return field.phase === "error" ? <span role="alert">入力を確認してください</span> : null;
- */
-export function useTaskField(key: string): FieldSnapshot {
-  const store = useAsyncTasks();
-  return useSyncExternalStore(
-    store.subscribe,
-    () => store.getFieldSnapshot(key),
-    () => cleanField,
-  );
 }
 /** onErrorは保存要求の失敗通知。beforeWaitはblurなどの同期準備に利用します。 */
 export type AfterTasksOptions = {
@@ -844,154 +821,4 @@ export function useAfterTasks(
     })();
   }, [revision, action, actionTimeout, store]);
   return { run, ...snapshot, reconcile: store.reconcile };
-}
-
-/** 通常のinputや既存のUIライブラリーを使うための入力設定です。 */
-export type AsyncFieldOptions = FieldConfig & {
-  taskKey: string;
-  value: string;
-  /** 同じvalueのままでも、この値を変更すると再確定します。 */
-  resetKey?: unknown;
-};
-
-/**
- * TrackedInputを使わずに、入力の世代・確定・破棄を管理します。
- * changeはstateを変更しないため、画面のsetterも呼んでください。
- * nullを渡すと入力を登録しません。入力を条件付きで有効化する場合に使えます。
- * commitはblurで呼びます。runからもdirty項目を自動確定するため、blur漏れに対応します。
- * @example
- * const nameField = useAsyncField({
- *   taskKey: "name", value: name,
- *   normalize: (input, { signal }) => normalizeName(input, { signal }),
- *   onCommit: setName,
- *   timeoutMs: null, // この入力の処理を無期限で待つ
- * });
- * return <input value={name} onChange={event => {
- *   const value = event.currentTarget.value;
- *   nameField.change(value); // 古い結果を、この時点で無効化する
- *   setName(value);
- * }} onBlur={nameField.commit} />;
- */
-export function useAsyncField(options: AsyncFieldOptions | null) {
-  return useManagedField(options);
-}
-
-// optionsがnullなら入力の所有者を登録しません。
-// 公開Hookと入力部品が同じ管理処理を使うため、競合対策が二重実装になりません。
-function useManagedField(options: AsyncFieldOptions | null) {
-  const store = useAsyncTasks();
-  const enabled = options !== null;
-  const taskKey = options?.taskKey;
-  const value = options?.value;
-  const resetKey = options?.resetKey;
-  if (options) duration(options.timeoutMs, store.defaults.taskTimeoutMs);
-  const field = useRef<Field | null>(null);
-  const getOptions = useLatestCommitted(options);
-  const getConfig = useCallback((): FieldConfig => {
-    const current = getOptions();
-    if (!current) throw new Error("managed入力の設定が変更されました");
-    return current;
-  }, [getOptions]);
-  useCommitEffect(() => {
-    if (!enabled || taskKey === undefined) return;
-    const current = getOptions();
-    if (!current || typeof current.value !== "string")
-      throw new TypeError("managed入力はstringのvalueが必要です");
-    const mounted = store.mountField(taskKey, current.value, getConfig);
-    field.current = mounted;
-    return () => {
-      mounted.dispose();
-      if (field.current === mounted) field.current = null;
-    };
-  }, [enabled, store, taskKey, getOptions, getConfig]);
-  useCommitEffect(() => {
-    if (enabled && value !== undefined) field.current?.sync(value);
-  }, [enabled, value]);
-  const previousReset = useRef(resetKey);
-  useCommitEffect(() => {
-    if (!Object.is(previousReset.current, resetKey)) {
-      previousReset.current = resetKey;
-      if (value !== undefined) field.current?.reset(value);
-    }
-  }, [resetKey, value]);
-  const snapshot = useSyncExternalStore(
-    store.subscribe,
-    () =>
-      taskKey === undefined ? cleanField : store.getFieldSnapshot(taskKey),
-    () => cleanField,
-  );
-  const change = useCallback(
-    (input: string) => field.current?.change(input),
-    [],
-  );
-  const commit = useCallback(() => field.current?.commit(true), []);
-  const reset = useCallback((input: string) => field.current?.reset(input), []);
-  return { change, commit, reset, ...snapshot };
-}
-
-/**
- * formにspreadするイベント群。変換確定のEnterで保存しないよう押下サイクルを管理します。
- * preventDefaultはイベント配送中に実行し、イベントオブジェクトを後で使い回しません。
- * 実OSのIMEはブラウザー自動化の合成イベントと異なるため、利用環境でも確認してください。
- * @example
- * const { run } = useAfterTasks(save, { onError: console.error });
- * const submitEvents = useAsyncSubmit(run);
- * return <form {...submitEvents}><input /><button type="submit">保存</button></form>;
- */
-export function useAsyncSubmit(run: () => void) {
-  const ime = useRef({
-    composing: false,
-    ended: false,
-    suppressEnter: false,
-    explicit: false,
-  });
-  return {
-    onCompositionStart: () => {
-      ime.current.composing = true;
-      ime.current.ended = false;
-    },
-    onCompositionEnd: () => {
-      ime.current.composing = false;
-      ime.current.ended = true;
-    },
-    onKeyDown: (event: KeyboardEvent<HTMLFormElement>) => {
-      const state = ime.current;
-      if (event.key === "Enter") {
-        const composing =
-          state.composing ||
-          state.ended ||
-          event.nativeEvent.isComposing ||
-          event.keyCode === 229;
-        state.ended = false;
-        state.explicit = false;
-        if (composing) {
-          state.suppressEnter = true;
-          event.preventDefault();
-        }
-      } else if (event.keyCode === 229) {
-        state.suppressEnter = true;
-      } else {
-        state.ended = false;
-      }
-    },
-    onKeyUp: (event: KeyboardEvent<HTMLFormElement>) => {
-      if (event.key === "Enter" || event.keyCode === 229) {
-        ime.current.suppressEnter = false;
-        ime.current.ended = false;
-      }
-    },
-    onPointerDown: () => {
-      ime.current.explicit = true;
-      ime.current.suppressEnter = false;
-      ime.current.ended = false;
-    },
-    onSubmit: (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const state = ime.current;
-      const allow =
-        state.explicit || (!state.composing && !state.suppressEnter);
-      state.explicit = false;
-      if (allow) run();
-    },
-  };
 }

@@ -1,0 +1,57 @@
+# このリポジトリで作業するエージェントへ
+
+## 目的
+
+React / TypeScriptで、非同期の入力処理を待った後、最新のcommit済みstateを参照する保存処理を実行するためのサンプル・配布用コードです。共通Buttonの利用や、フォームstateをrefへコピーする作業を利用者へ要求しません。
+
+## ファイル構成と依存の方向
+
+- `src/AsyncTasks.tsx`が中心ファイルです。Context、タスク登録・待機、入力確定を待機へ統合する内部管理、`useAfterTasks`、`useLatestCommitted`を持ちます。React以外の実行時importを追加しないでください。この1ファイルだけで利用できることを維持します。
+- `src/useAsyncField.ts`は任意の入力Hook群です。`useAsyncField`、`useTaskField`、`AsyncFieldOptions`をまとめます。中心ファイルだけに依存します。
+- `src/TrackedInput.tsx`は任意の入力UIです。`useAsyncField.ts`を利用し、確定処理を重複実装しません。
+- `src/useAsyncSubmit.ts`は任意のformイベント補助です。IME・Enter・明示クリックを扱い、タスク管理には依存しません。
+- 中心ファイルから任意部品をimport・再exportしないでください。利用例は必要なファイルから明示的にimportします。
+- コピー対象を増減したら、READMEの構成表と`scripts/check-copy.mjs`も更新します。
+
+## APIの方針
+
+- タスクの登録は`registerAsyncTask(key, factory, options?)`に一本化します。factoryは`{ signal }`を受け取り、結果を返します。state反映は同期的な`options.onCommit`へ分けます。
+- 旧APIの互換性は維持しません。開始済みPromiseを直接渡す形式、`register`/`track`の別名、TrackedInputのasync `onBlur`形式、削除したexportを復活させないでください。
+- `TrackedInput`は`normalize`と`onCommit`が必須です。`useAsyncField`の無効化用null形式は不要です。動的入力は子コンポーネントのmount/unmountで扱います。
+- `run`はイベントハンドラーとして使うvoid関数です。`await run()`で保存終了を待てると説明しないでください。成功後の処理はaction内へ書きます。
+- タイムアウトの`null`は無期限、`undefined`は既定値を継承します。0・負数・NaN・Infinityは無効です。無期限でも取消とunmountの後始末は必要です。
+
+## 保持すべき動作
+
+- 単純なPromise待機だけでは古いclosureは更新されません。タスク完了後に再レンダーし、そのレンダーに対応するactionを呼びます。
+- 入力の再編集、取消、期限切れ、unmount、同じkeyでの再登録後は、古い結果をonCommitへ渡しません。
+- 待機中に追加されたタスクとdirty入力も保存前に確認します。
+- 保存要求の重複をProvider単位で防ぎます。保存結果が不明な場合はblockedを維持し、実際の結果照会で回復します。
+- React 18.3/19、StrictMode、SSRに対応します。破棄されたレンダーの値をlatest getterから公開しません。
+- SyntheticEventの必要な値はイベント中に取得し、preventDefaultも同期的に実行します。
+- FirefoxのPlaywright `fill()`はcompositionイベントを発生させるため、通常のキー入力を検証するケースは`pressSequentially()`を使います。IMEケースは分けます。合成イベントを実OSの日本語IME検証済みとは扱いません。
+
+## コメントと使用例
+
+- コメントとREADMEは初心者向けの日本語で書きます。「何をするか」だけでなく、「なぜ必要か」「呼び出すタイミング」も説明します。
+- 公開Hook・APIにはJSDocの使用例を付け、正しいimport先、同期/非同期の境界、nullの意味を示します。
+- 削除したAPIの使用例・移行用コードを残しません。説明・サンプル・テストを現在のAPIへ揃えます。
+- 利用者の画面に共通処理の内部実装を露出させません。
+
+## 検証
+
+```sh
+npm ci
+npm run typecheck
+npm test
+npm run check:copy
+npm run build
+npx playwright install --with-deps chromium firefox webkit
+npm run test:browser
+```
+
+CIはReact 18/19で型・単体・コピー検証を行い、Chromium/Firefox/WebKitでブラウザー操作を確認します。変更後は関連する検証を実行し、pushを依頼されている作業では最新コミットのCI結果まで確認します。
+
+`check:copy`は中心ファイル単独と任意部品の組み合わせを、他のsrcファイルをコピーせずに検証します。ブラウザーテスト失敗時はActionsの`playwright-failure-report`を確認できます。
+
+未実行・起動失敗・実行中の検証を成功と報告しないでください。`VERIFICATION.md`には実際に確認した範囲と制約を記録します。CIを通すためにテストをskipしたり、検証対象の動作を削除したりしないでください。

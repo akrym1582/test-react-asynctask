@@ -1,3 +1,4 @@
+import { useAsyncField } from "../src/useAsyncField";
 // @vitest-environment jsdom
 import { StrictMode, useState } from "react";
 import {
@@ -13,7 +14,6 @@ import {
   AsyncTasksProvider,
   createTaskStore,
   useAfterTasks,
-  useAsyncField,
 } from "../src/AsyncTasks";
 
 afterEach(() => {
@@ -85,11 +85,11 @@ it("null disables input, overall wait and action deadlines, including hook overr
   expect(vi.getTimerCount()).toBe(0);
 });
 
-it("legacy registerAsyncTask can wait indefinitely through Provider/store defaults", async () => {
+it("registerAsyncTask can wait indefinitely through Provider/store defaults", async () => {
   vi.useFakeTimers();
   const task = deferred<void>();
   const store = createTaskStore({ taskTimeoutMs: null, waitTimeoutMs: null });
-  store.registerAsyncTask(task.promise, "legacy");
+  store.registerAsyncTask("input", () => task.promise);
   let completed = false;
   const waiting = store.wait().then(() => {
     completed = true;
@@ -102,11 +102,13 @@ it("legacy registerAsyncTask can wait indefinitely through Provider/store defaul
   expect(completed).toBe(true);
 });
 
-it("track timeoutMs null overrides a finite default", async () => {
+it("registerAsyncTask timeoutMs null overrides a finite default", async () => {
   vi.useFakeTimers();
   const task = deferred<string>();
   const store = createTaskStore({ taskTimeoutMs: 5 });
-  const handle = store.track("x", () => task.promise, { timeoutMs: null });
+  const handle = store.registerAsyncTask("x", () => task.promise, {
+    timeoutMs: null,
+  });
   await vi.advanceTimersByTimeAsync(3600000);
   expect(handle.getStatus()).toBe("pending");
   task.resolve("done");

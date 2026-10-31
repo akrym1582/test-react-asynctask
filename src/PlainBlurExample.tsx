@@ -2,16 +2,19 @@ import { useRef, useState } from "react";
 import { AsyncTasksProvider, useAfterTasks, useAsyncTasks } from "./AsyncTasks";
 
 /**
- * 既存のasync onBlurをそのまま登録する、最小限の使用例です。
+ * 通常のinputから非同期処理を登録する、中心ファイルだけの使用例です。
  * TrackedInputもuseAsyncFieldも必要ありません。
- * この方式は完了待機のみを提供します。再編集時に古い結果を破棄したい場合は、
+ * 同じkeyで再登録すると古い結果を破棄します。blur前の再編集にも対応したい場合は、
  * ExampleFormのuseAsyncField方式を使ってください。
  */
 export function PlainBlurExample({
   normalize,
   save,
 }: {
-  normalize: (value: string) => Promise<string>;
+  normalize: (
+    value: string,
+    context: { signal: AbortSignal },
+  ) => Promise<string>;
   save: (value: string) => Promise<void>;
 }) {
   return (
@@ -28,7 +31,10 @@ function Fields({
   normalize,
   save,
 }: {
-  normalize: (value: string) => Promise<string>;
+  normalize: (
+    value: string,
+    context: { signal: AbortSignal },
+  ) => Promise<string>;
   save: (value: string) => Promise<void>;
 }) {
   const [value, setValue] = useState("");
@@ -48,10 +54,6 @@ function Fields({
       onError: (error) => setError(String(error)),
     },
   );
-  async function handleBlur(input: string) {
-    const result = await normalize(input);
-    setValue(result);
-  }
   return (
     <>
       <input
@@ -59,9 +61,18 @@ function Fields({
         value={value}
         readOnly={busy || blocked}
         onChange={(event) => setValue(event.currentTarget.value)}
-        onBlur={(event) =>
-          registerAsyncTask(handleBlur(event.currentTarget.value), "value")
-        }
+        onBlur={(event) => {
+          // SyntheticEventの値はawaitの前に読み取ります。
+          const input = event.currentTarget.value;
+          registerAsyncTask(
+            "value",
+            ({ signal }) => normalize(input, { signal }),
+            {
+              // 取消・期限切れ・同じkeyでの再登録後は、このsetterを呼びません。
+              onCommit: setValue,
+            },
+          );
+        }}
       />
       <button type="button" onClick={run} disabled={busy || blocked}>
         保存

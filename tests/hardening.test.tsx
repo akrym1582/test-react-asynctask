@@ -1,3 +1,5 @@
+import { useTaskField } from "../src/useAsyncField";
+import { useAsyncSubmit } from "../src/useAsyncSubmit";
 // @vitest-environment jsdom
 import { TrackedInput } from "../src/TrackedInput";
 import { StrictMode, Suspense, startTransition, useState } from "react";
@@ -14,9 +16,7 @@ import {
   AsyncTasksProvider,
   createTaskStore,
   useAfterTasks,
-  useAsyncSubmit,
   useLatestCommitted,
-  useTaskField,
   UncertainActionError,
 } from "../src/AsyncTasks";
 import { createMemorySaveAdapter } from "../src/exampleSaveAdapter";
@@ -47,7 +47,7 @@ describe("store deadlines and fields", () => {
       expect(() => createTaskStore({ taskTimeoutMs: n })).toThrow(RangeError);
     expect(() => createTaskStore({ taskTimeoutMs: null })).not.toThrow();
     expect(() =>
-      createTaskStore().track("x", () => 1, { timeoutMs: 0 }),
+      createTaskStore().registerAsyncTask("x", () => 1, { timeoutMs: 0 }),
     ).toThrow();
   });
   it("times out, aborts, retains the error and discards a late success", async () => {
@@ -56,7 +56,9 @@ describe("store deadlines and fields", () => {
     const commit = vi.fn();
     const onTaskError = vi.fn();
     const store = createTaskStore({ taskTimeoutMs: 10, onTaskError });
-    const handle = store.track("x", () => task.promise, { onCommit: commit });
+    const handle = store.registerAsyncTask("x", () => task.promise, {
+      onCommit: commit,
+    });
     await vi.advanceTimersByTimeAsync(10);
     expect(handle.signal.aborted).toBe(true);
     expect((await handle.result).status).toBe("timedOut");
@@ -71,7 +73,7 @@ describe("store deadlines and fields", () => {
   it("handles late rejection after cancellation", async () => {
     const task = deferred<void>();
     const store = createTaskStore();
-    const h = store.track("x", () => task.promise);
+    const h = store.registerAsyncTask("x", () => task.promise);
     h.cancel();
     task.reject(new Error("late"));
     await Promise.resolve();
@@ -81,11 +83,11 @@ describe("store deadlines and fields", () => {
   it("bounds total waiting while new tasks arrive", async () => {
     vi.useFakeTimers();
     const store = createTaskStore({ taskTimeoutMs: null });
-    store.track("a", never);
+    store.registerAsyncTask("a", never);
     const wait = store.wait({ timeoutMs: 20 });
     const assertion = expect(wait).rejects.toThrow("タイムアウト");
     await vi.advanceTimersByTimeAsync(10);
-    store.track("b", never);
+    store.registerAsyncTask("b", never);
     await vi.advanceTimersByTimeAsync(10);
     await assertion;
     store.cancelInputs();
@@ -94,9 +96,9 @@ describe("store deadlines and fields", () => {
   it("does not block on background tasks or their errors", async () => {
     const onTaskError = vi.fn();
     const store = createTaskStore({ onTaskError });
-    const h = store.track("poll", never, { blocking: false });
+    const h = store.registerAsyncTask("poll", never, { blocking: false });
     await store.wait();
-    store.track(
+    store.registerAsyncTask(
       "background",
       () => {
         throw Error("background");
@@ -210,11 +212,11 @@ describe("store deadlines and fields", () => {
         throw Error("callback");
       },
     });
-    store.track("x", () => {
+    store.registerAsyncTask("x", () => {
       throw Error("task");
     });
     await expect(store.wait()).rejects.toThrow();
-    store.track("x", () => 1);
+    store.registerAsyncTask("x", () => 1);
     await store.wait();
     log.mockRestore();
   });
