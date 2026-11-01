@@ -88,3 +88,11 @@ useAfterTasksField.tsはReact接続のみとし、管理本体をafterTasksField
 ## 入力関連の1ファイル集約（最終構成）
 
 上記の分離構成を更新し、useAfterTasksField・入力store・useAfterTasksFieldStateをsrc/useAfterTasksField.tsへ集約しました。テストもtests/useAfterTasksField.test.tsxへ全件移し、全66件を維持。コピー検証は5構成へ戻し、import・README・AGENTS.mdを揃えました。購読分離の動作は維持しています。
+
+## CIのブラウザー準備停滞への対策
+
+run 41258647621 / job 124707107409はPlaywright install --with-depsの途中で停止し、テスト本体は未開始でした。進行中ログの取得は404で、apt/CDNのどこが原因かは未特定です。
+
+ブラウザーjobを公式mcr.microsoft.com/playwright:v1.58.2-nobleへ変更し、ブラウザー・OS依存のインストール工程を除去。npmパッケージとのバージョン一致を検査します。jobは20分、npm ciは5分、テストは10分、artifactは2分で打ち切ります。3ブラウザーはworkers=1で順次実行し、同一PRの古いrunはconcurrencyで取消します。pushはmainに限定し、PRとの二重検証を防ぎます。
+
+この変更前から実行中のrunには新しいtimeout/concurrencyは遡及適用されません。公式コンテナーのpullと実ブラウザーの実行結果は新しいCIで確認が必要です。
