@@ -6,7 +6,7 @@ import {
   useAfterTasks,
   type AfterTasksStore,
 } from "../src/AfterTasks";
-import { createAfterTasksFieldStore } from "../src/afterTasksFieldStore";
+import { createAfterTasksFieldStore } from "../src/useAfterTasksField";
 import { useAfterTasksField } from "../src/useAfterTasksField";
 
 export type Scenario =

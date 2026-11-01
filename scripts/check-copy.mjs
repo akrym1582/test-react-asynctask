@@ -73,35 +73,10 @@ function Example() {
   },
   {
     name: "fields",
-    files: [
-      "AfterTasks.tsx",
-      "useLatestCommitted.ts",
-      "useAfterTasksField.ts",
-      "afterTasksFieldStore.ts",
-    ],
+    files: ["AfterTasks.tsx", "useLatestCommitted.ts", "useAfterTasksField.ts"],
     usage: `
 import { useAfterTasksField } from "./useAfterTasksField";
-
-function Example() {
-  const field = useAfterTasksField({ taskKey: "name", value: "", normalize: v => v.trim(), onCommit: () => {} });
-
-  // @ts-expect-error 互換モード用のnull設定は提供しない
-  useAfterTasksField(null);
-  return <input onBlur={field.commit} aria-invalid={field.phase === "error"} />;
-}`,
-  },
-  {
-    name: "field-state",
-    files: [
-      "AfterTasks.tsx",
-      "useLatestCommitted.ts",
-      "useAfterTasksField.ts",
-      "afterTasksFieldStore.ts",
-      "useAfterTasksFieldState.ts",
-    ],
-    usage: `
-import { useAfterTasksField } from "./useAfterTasksField";
-import { useAfterTasksFieldState } from "./useAfterTasksFieldState";
+import { useAfterTasksFieldState } from "./useAfterTasksField";
 function Example() {
   const field = useAfterTasksField({ taskKey: "name", value: "", normalize: v => v.trim(), onCommit: () => {} });
   const snapshot = useAfterTasksFieldState("name");
@@ -116,7 +91,6 @@ function Example() {
       "AfterTasks.tsx",
       "useLatestCommitted.ts",
       "useAfterTasksField.ts",
-      "afterTasksFieldStore.ts",
       "AfterTasksInput.tsx",
     ],
     usage: `

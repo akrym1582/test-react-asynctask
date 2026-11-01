@@ -84,3 +84,7 @@ useAfterTasksFieldStateをsrc/useAfterTasksFieldState.tsへ移動しました。
 ## 入力Hookと内部storeの分離
 
 useAfterTasksField.tsはReact接続のみとし、管理本体をafterTasksFieldStore.tsへ移動しました。Hookテスト3件、storeテスト6件に振り分け、全66件を維持。型・lint・整形・コピー6構成・buildが成功。コピー構成表と内部参照先を更新しました。
+
+## 入力関連の1ファイル集約（最終構成）
+
+上記の分離構成を更新し、useAfterTasksField・入力store・useAfterTasksFieldStateをsrc/useAfterTasksField.tsへ集約しました。テストもtests/useAfterTasksField.test.tsxへ全件移し、全66件を維持。コピー検証は5構成へ戻し、import・README・AGENTS.mdを揃えました。購読分離の動作は維持しています。

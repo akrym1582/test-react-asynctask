@@ -11,7 +11,7 @@ import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AfterTasksProvider, useAfterTasks } from "../src/AfterTasks";
 import { AfterTasksInput } from "../src/AfterTasksInput";
-import { useAfterTasksFieldState } from "../src/useAfterTasksFieldState";
+import { useAfterTasksFieldState } from "../src/useAfterTasksField";
 import { deferred } from "./helpers";
 afterEach(() => {
   cleanup();

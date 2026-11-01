@@ -7,9 +7,8 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 ## ファイル構成と依存の方向
 
 - `src/AfterTasks.tsx`が中心ファイルです。Context、タスク登録・待機、任意機能を待機へ接続する内部契約、`useAfterTasks`を持ちます。React以外の実行時importを追加しないでください。この1ファイルだけで利用できることを維持します。
-- `src/useAfterTasksField.ts`は任意の入力Hook群です。`useAfterTasksField`、`AfterTasksFieldOptions`をまとめます。中心ファイルと`useLatestCommitted.ts`に依存し、入力の世代・dirty・エラー状態の管理本体は`src/afterTasksFieldStore.ts`に置きます。
+- `src/useAfterTasksField.ts`は任意の入力Hook群です。`useAfterTasksField`、`useAfterTasksFieldState`、`AfterTasksFieldOptions`をまとめます。中心ファイルと`useLatestCommitted.ts`に依存し、入力の世代・dirty・エラー状態の管理本体も同じファイルに置きます。
 - `src/useLatestCommitted.ts`は任意の最新commit値getterです。Reactだけに依存し、Providerなしで単独利用できます。中心ファイルは公開getterを参照せず、オプション参照用のprivate helperを持ちます。
-- `src/useAfterTasksFieldState.ts`は別コンポーネントから入力keyの状態だけを読む任意Hookです。入力管理本体はafterTasksFieldStore.tsに置きます。
 - `src/AfterTasksInput.tsx`は任意の入力UIです。`useAfterTasksField.ts`を利用し、確定処理を重複実装しません。
 - `src/useAfterTasksSubmit.ts`は任意のformイベント補助です。IME・Enter・明示クリックを扱い、タスク管理には依存しません。
 - 中心ファイルから任意部品をimport・再exportしないでください。利用例は必要なファイルから明示的にimportします。
@@ -78,6 +77,6 @@ npm run test:browser
 
 CIはReact 18/19で型・単体・コピー検証を行い、Chromium/Firefox/WebKitでブラウザー操作を確認します。変更後は関連する検証を実行し、pushを依頼されている作業では最新コミットのCI結果まで確認します。
 
-`check:copy`は中心ファイル単独、入力Hook、入力UI、getter単独、送信補助の6構成を、他のsrcファイルをコピーせずに検証します。ブラウザーテスト失敗時はActionsの`playwright-failure-report`を確認できます。
+`check:copy`は中心ファイル単独、入力Hook、入力UI、getter単独、送信補助の5構成を、他のsrcファイルをコピーせずに検証します。ブラウザーテスト失敗時はActionsの`playwright-failure-report`を確認できます。
 
 未実行・起動失敗・実行中の検証を成功と報告しないでください。`VERIFICATION.md`には実際に確認した範囲と制約を記録します。CIを通すためにテストをskipしたり、検証対象の動作を削除したりしないでください。

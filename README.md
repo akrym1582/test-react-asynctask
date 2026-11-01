@@ -5,27 +5,26 @@
 
 ## 必要なファイルだけコピーする
 
-| 利用する機能                                           | コピーするファイル                                                                   |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                                                 |
-| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `afterTasksFieldStore.ts` + `useAfterTasksField.ts` |
-| 別コンポーネントで項目状態を表示                       | 入力Hookの4ファイル + `useAfterTasksFieldState.ts`                                   |
-| 入力UIも共通化する                                     | 入力Hookの4ファイル + `AfterTasksInput.tsx`                                          |
-| 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）                                          |
-| formのIME・Enter送信を補助する                         | 必要に応じて`useAfterTasksSubmit.ts`を追加                                           |
+| 利用する機能                                           | コピーするファイル                                       |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                     |
+| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAfterTasksField.ts` |
+| 入力UIも共通化する                                     | 入力Hookの3ファイル + `AfterTasksInput.tsx`              |
+| 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）              |
+| formのIME・Enter送信を補助する                         | 必要に応じて`useAfterTasksSubmit.ts`を追加               |
 
 ```tsx
 // 必須の中心ファイル
 import { AfterTasksProvider, useAfterTasks } from "./AfterTasks";
 // 以下は利用するものだけimportします。
 import { useAfterTasksField } from "./useAfterTasksField";
-import { useAfterTasksFieldState } from "./useAfterTasksFieldState";
+import { useAfterTasksFieldState } from "./useAfterTasksField";
 import { AfterTasksInput } from "./AfterTasksInput";
 import { useAfterTasksSubmit } from "./useAfterTasksSubmit";
 import { useLatestCommitted } from "./useLatestCommitted";
 ```
 
-中心ファイルから任意ファイルをimport・再exportしません。中心側は任意機能の準備・待機判定・破棄を呼び出す汎用の接続だけを持ちます。入力の世代・dirty・エラー表示の管理本体はafterTasksFieldStore.tsへ集約しています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
+中心ファイルから任意ファイルをimport・再exportしません。中心側は任意機能の準備・待機判定・破棄を呼び出す汎用の接続だけを持ちます。入力の世代・dirty・エラー表示の管理本体はuseAfterTasksField.tsへ集約しています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
 
 引数なしの`useAfterTasks()`はタスク登録と共有状態の参照に使えます。保存処理と`onError`を渡すと、`runAfterTasks`も取得できます。保存処理はHookの引数として定義し、クリック時には`onClick={runAfterTasks}`で実行します。
 
@@ -73,11 +72,11 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async cont
 
 ## 任意の入力Hookを使う
 
-`useAfterTasksField`を使えば、DOMは通常のinputや既存UIライブラリーの部品を使えます。`useAfterTasksFieldState`は別ファイルにある状態表示用Hookです。必要な場合に追加します。
+`useAfterTasksField`を使えば、DOMは通常のinputや既存UIライブラリーの部品を使えます。`useAfterTasksFieldState`は同じファイルにある状態表示用Hookです。
 
 ```tsx
 import { useAfterTasksField } from "./useAfterTasksField";
-import { useAfterTasksFieldState } from "./useAfterTasksFieldState";
+import { useAfterTasksFieldState } from "./useAfterTasksField";
 
 const [name, setName] = useState("");
 const nameField = useAfterTasksField({
@@ -122,16 +121,16 @@ import { AfterTasksInput } from "./AfterTasksInput";
 
 ## API
 
-| API                                                  | import元                | 用途                                                          |
-| ---------------------------------------------------- | ----------------------- | ------------------------------------------------------------- |
-| AfterTasksProvider                                   | AfterTasks              | フォーム単位の管理範囲・初期設定                              |
-| useAfterTasks().registerAsyncTask(factory, options?) | AfterTasks              | signalを準備してから処理を開始                                |
-| useAfterTasks(action, options)                       | AfterTasks              | runAfterTasks/isRunning/hasPendingTasks/phase/requestIdを取得 |
-| useLatestCommitted(value)                            | useLatestCommitted      | 最新commit済み値を返す安定したgetter                          |
-| useAfterTasksField(options)                          | useAfterTasksField      | 入力確定・世代管理                                            |
-| useAfterTasksFieldState(key)                         | useAfterTasksFieldState | 入力のclean/dirty/pending/error状態を購読                     |
-| AfterTasksInput                                      | AfterTasksInput         | 入力Hookを組み込んだUI                                        |
-| useAfterTasksSubmit(runAfterTasks)                   | useAfterTasksSubmit     | IME対応のformイベント群                                       |
+| API                                                  | import元            | 用途                                                          |
+| ---------------------------------------------------- | ------------------- | ------------------------------------------------------------- |
+| AfterTasksProvider                                   | AfterTasks          | フォーム単位の管理範囲・初期設定                              |
+| useAfterTasks().registerAsyncTask(factory, options?) | AfterTasks          | signalを準備してから処理を開始                                |
+| useAfterTasks(action, options)                       | AfterTasks          | runAfterTasks/isRunning/hasPendingTasks/phase/requestIdを取得 |
+| useLatestCommitted(value)                            | useLatestCommitted  | 最新commit済み値を返す安定したgetter                          |
+| useAfterTasksField(options)                          | useAfterTasksField  | 入力確定・世代管理                                            |
+| useAfterTasksFieldState(key)                         | useAfterTasksField  | 入力のclean/dirty/pending/error状態を購読                     |
+| AfterTasksInput                                      | AfterTasksInput     | 入力Hookを組み込んだUI                                        |
+| useAfterTasksSubmit(runAfterTasks)                   | useAfterTasksSubmit | IME対応のformイベント群                                       |
 
 タスク登録は`registerAsyncTask(factory, options?)`だけを公開します。互換API・別名は提供しません。戻り値の`handle.result`はrejectせず、statusで判別する結果を返します。
 
@@ -300,16 +299,14 @@ ESLintはflat configの`eslint.config.js`、Prettierは`.prettierrc.json`で設�
 
 単体テストはsrcの相対パスとファイル名に対応させます。例えばsrc/AfterTasks.tsxのテストはtests/AfterTasks.test.tsxです。srcにサブディレクトリを追加した場合も同じ階層を使います。
 
-| 実装                           | 単体テスト                             |
-| ------------------------------ | -------------------------------------- |
-| src/AfterTasks.tsx             | tests/AfterTasks.test.tsx              |
-| src/useAfterTasksField.ts      | tests/useAfterTasksField.test.tsx      |
-| src/afterTasksFieldStore.ts    | tests/afterTasksFieldStore.test.ts     |
-| src/useAfterTasksFieldState.ts | tests/useAfterTasksFieldState.test.tsx |
-| src/AfterTasksInput.tsx        | tests/AfterTasksInput.test.tsx         |
-| src/useAfterTasksSubmit.ts     | tests/useAfterTasksSubmit.test.tsx     |
-| src/useLatestCommitted.ts      | tests/useLatestCommitted.test.tsx      |
-| src/exampleSaveAdapter.ts      | tests/exampleSaveAdapter.test.ts       |
+| 実装                       | 単体テスト                         |
+| -------------------------- | ---------------------------------- |
+| src/AfterTasks.tsx         | tests/AfterTasks.test.tsx          |
+| src/useAfterTasksField.ts  | tests/useAfterTasksField.test.tsx  |
+| src/AfterTasksInput.tsx    | tests/AfterTasksInput.test.tsx     |
+| src/useAfterTasksSubmit.ts | tests/useAfterTasksSubmit.test.tsx |
+| src/useLatestCommitted.ts  | tests/useLatestCommitted.test.tsx  |
+| src/exampleSaveAdapter.ts  | tests/exampleSaveAdapter.test.ts   |
 
 フォームや複数部品の連携、SSRなどの結合テストはtests/integration/に配置します。例示コンポーネントは結合テストから検証します。tests/helpers.tsはPromiseの完了タイミングなどを制御するテスト用ヘルパーです。browser-tests/は実ブラウザーでの結合テストとして別配置を維持します。npm testで単体・結合の両方を実行します。
 
@@ -387,5 +384,3 @@ if (result.status === "rejected" || result.status === "timedOut") {
 ## 大量入力フォームの性能検証
 
 10・100・500項目の登録・blur・保存待機・state更新を計測できます。実行方法と測定の限界は[benchmarks/README.md](./benchmarks/README.md)、改善前との実測比較は[benchmarks/RESULTS.md](./benchmarks/RESULTS.md)を参照してください。
-
-入力Hookは`useAfterTasksField.ts`、内部管理は`afterTasksFieldStore.ts`です。対応テストはそれぞれ`tests/useAfterTasksField.test.tsx`、`tests/afterTasksFieldStore.test.ts`に置きます。
