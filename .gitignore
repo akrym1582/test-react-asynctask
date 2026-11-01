@@ -153,3 +153,5 @@ vite.config.ts.timestamp-*
 /playwright-report/
 /.copy-check-*/
 
+
+benchmark-results/

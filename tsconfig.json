@@ -14,6 +14,7 @@
     "tests",
     "browser-tests",
     "playwright.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "benchmarks"
   ]
 }
