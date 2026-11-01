@@ -6,10 +6,8 @@ import {
   useAfterTasks,
   type AfterTasksStore,
 } from "../src/AfterTasks";
-import {
-  createAfterTasksFieldStore,
-  useAfterTasksField,
-} from "../src/useAfterTasksField";
+import { createAfterTasksFieldStore } from "../src/afterTasksFieldStore";
+import { useAfterTasksField } from "../src/useAfterTasksField";
 
 export type Scenario =
   "register" | "blur-all" | "blur-one" | "save-dirty" | "state-one";

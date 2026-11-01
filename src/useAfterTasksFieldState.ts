@@ -3,7 +3,7 @@ import { useAfterTasksStoreInternal } from "./AfterTasks";
 import {
   createAfterTasksFieldStore,
   type AfterTasksFieldSnapshot,
-} from "./useAfterTasksField";
+} from "./afterTasksFieldStore";
 
 const cleanField: AfterTasksFieldSnapshot = Object.freeze({ phase: "clean" });
 

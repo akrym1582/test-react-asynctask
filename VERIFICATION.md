@@ -80,3 +80,7 @@ APIがthrow/rejectした場合はonErrorへ通知し、action終了後にisRunni
 ## 状態表示Hookのファイル分離
 
 useAfterTasksFieldStateをsrc/useAfterTasksFieldState.tsへ移動しました。対応テストはtests/useAfterTasksFieldState.test.tsxです。入力UI側から状態購読のケースを移し、66件の検証内容を維持しています。コピー検証は入力Hook単独と状態表示Hookを分けた6構成です。import先とREADME・AGENTS.mdも更新しました。
+
+## 入力Hookと内部storeの分離
+
+useAfterTasksField.tsはReact接続のみとし、管理本体をafterTasksFieldStore.tsへ移動しました。Hookテスト3件、storeテスト6件に振り分け、全66件を維持。型・lint・整形・コピー6構成・buildが成功。コピー構成表と内部参照先を更新しました。

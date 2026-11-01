@@ -73,7 +73,12 @@ function Example() {
   },
   {
     name: "fields",
-    files: ["AfterTasks.tsx", "useLatestCommitted.ts", "useAfterTasksField.ts"],
+    files: [
+      "AfterTasks.tsx",
+      "useLatestCommitted.ts",
+      "useAfterTasksField.ts",
+      "afterTasksFieldStore.ts",
+    ],
     usage: `
 import { useAfterTasksField } from "./useAfterTasksField";
 
@@ -91,6 +96,7 @@ function Example() {
       "AfterTasks.tsx",
       "useLatestCommitted.ts",
       "useAfterTasksField.ts",
+      "afterTasksFieldStore.ts",
       "useAfterTasksFieldState.ts",
     ],
     usage: `
@@ -110,6 +116,7 @@ function Example() {
       "AfterTasks.tsx",
       "useLatestCommitted.ts",
       "useAfterTasksField.ts",
+      "afterTasksFieldStore.ts",
       "AfterTasksInput.tsx",
     ],
     usage: `

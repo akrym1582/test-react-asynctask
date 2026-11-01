@@ -5,14 +5,14 @@
 
 ## 必要なファイルだけコピーする
 
-| 利用する機能                                           | コピーするファイル                                       |
-| ------------------------------------------------------ | -------------------------------------------------------- |
-| タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                     |
-| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAfterTasksField.ts` |
-| 別コンポーネントで項目状態を表示                       | 入力Hookの3ファイル + `useAfterTasksFieldState.ts`       |
-| 入力UIも共通化する                                     | 上記3ファイル + `AfterTasksInput.tsx`                    |
-| 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）              |
-| formのIME・Enter送信を補助する                         | 必要に応じて`useAfterTasksSubmit.ts`を追加               |
+| 利用する機能                                           | コピーするファイル                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                                                 |
+| 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `afterTasksFieldStore.ts` + `useAfterTasksField.ts` |
+| 別コンポーネントで項目状態を表示                       | 入力Hookの4ファイル + `useAfterTasksFieldState.ts`                                   |
+| 入力UIも共通化する                                     | 入力Hookの4ファイル + `AfterTasksInput.tsx`                                          |
+| 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）                                          |
+| formのIME・Enter送信を補助する                         | 必要に応じて`useAfterTasksSubmit.ts`を追加                                           |
 
 ```tsx
 // 必須の中心ファイル
@@ -25,7 +25,7 @@ import { useAfterTasksSubmit } from "./useAfterTasksSubmit";
 import { useLatestCommitted } from "./useLatestCommitted";
 ```
 
-中心ファイルから任意ファイルをimport・再exportしません。中心側は任意機能の準備・待機判定・破棄を呼び出す汎用の接続だけを持ちます。入力の世代・dirty・エラー表示の管理本体はuseAfterTasksField.tsへ集約しています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
+中心ファイルから任意ファイルをimport・再exportしません。中心側は任意機能の準備・待機判定・破棄を呼び出す汎用の接続だけを持ちます。入力の世代・dirty・エラー表示の管理本体はafterTasksFieldStore.tsへ集約しています。任意HookのコードやUIファイルを配布先へ持ち込む必要はありません。
 
 引数なしの`useAfterTasks()`はタスク登録と共有状態の参照に使えます。保存処理と`onError`を渡すと、`runAfterTasks`も取得できます。保存処理はHookの引数として定義し、クリック時には`onClick={runAfterTasks}`で実行します。
 
@@ -304,6 +304,7 @@ ESLintはflat configの`eslint.config.js`、Prettierは`.prettierrc.json`で設�
 | ------------------------------ | -------------------------------------- |
 | src/AfterTasks.tsx             | tests/AfterTasks.test.tsx              |
 | src/useAfterTasksField.ts      | tests/useAfterTasksField.test.tsx      |
+| src/afterTasksFieldStore.ts    | tests/afterTasksFieldStore.test.ts     |
 | src/useAfterTasksFieldState.ts | tests/useAfterTasksFieldState.test.tsx |
 | src/AfterTasksInput.tsx        | tests/AfterTasksInput.test.tsx         |
 | src/useAfterTasksSubmit.ts     | tests/useAfterTasksSubmit.test.tsx     |
@@ -386,3 +387,5 @@ if (result.status === "rejected" || result.status === "timedOut") {
 ## 大量入力フォームの性能検証
 
 10・100・500項目の登録・blur・保存待機・state更新を計測できます。実行方法と測定の限界は[benchmarks/README.md](./benchmarks/README.md)、改善前との実測比較は[benchmarks/RESULTS.md](./benchmarks/RESULTS.md)を参照してください。
+
+入力Hookは`useAfterTasksField.ts`、内部管理は`afterTasksFieldStore.ts`です。対応テストはそれぞれ`tests/useAfterTasksField.test.tsx`、`tests/afterTasksFieldStore.test.ts`に置きます。
