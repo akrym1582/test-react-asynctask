@@ -381,3 +381,7 @@ if (result.status === "rejected" || result.status === "timedOut") {
 `clearError()`は取消や再実行を行いません。同じ固定keyの別登録が後から失敗した場合、
 古いハンドルでは新しい失敗を解除できません。画面全体を明示的に回復させる場合は
 `clearErrors()`を使用します。同じkeyでの再登録は、従来どおり先行処理を置き換えます。
+
+## 大量入力フォームの性能検証
+
+10・100・500項目の登録・blur・保存待機・state更新を計測できます。実行方法と測定の限界は[benchmarks/README.md](./benchmarks/README.md)、改善前との実測比較は[benchmarks/RESULTS.md](./benchmarks/RESULTS.md)を参照してください。

@@ -54,3 +54,15 @@ APIがthrow/rejectした場合はonErrorへ通知し、action終了後にisRunni
 - 個別clearErrorの解除と、古いハンドルが後続登録の失敗を解除しないことをテストしました。
 - 型チェック、単体・結合テスト61件、コピー検証5構成が成功しました。大規模画面の実ブラウザー時間計測は未実施です。
 - 同じキーの順次実行は追加しません。同じキーは従来どおり置き換えます。
+
+## 大量入力フォームのベンチマーク（2026-11-01）
+
+- 対象main: `eb96bdc88c58b2484fe6f564235f5763e53fee4d`。改善前: `c152d1b4b684a72be1f082639bc79cfcd764dece`。
+- Node v24.22.1 / React 19.3.1 / jsdom 26.1.0 / Linux。既存のローカル依存を再利用し、ロックファイルは変更していません。このセッションでnpm ciの再取得はしていません。
+- 10/100/500入力、登録・全項目blur・1項目blur・dirty保存・1項目state更新を、各2回warmup後7回測定。改善前と順番に同じコードを実行しました。
+- 最新stateの保存を確認。1項目state更新時は他項目のcommit=0、通知配信は2N+1回。全件操作では全購読者への通知によるO(N²)の配信合計が残ります。
+- ローカル: 単体テスト64件、benchmark 1件（各実装）、lint / format:check / typecheck / コピー5構成 / buildが成功。
+- ローカルChromium測定はブラウザー実行ファイル不在により起動前に失敗。Chromium/Firefox/WebKitの実ブラウザー時間は**未検証**。旧FirefoxのEnter送信失敗を今回の未解決不具合とは扱っていません。
+- React 18のローカル性能、本番ビルド、実OSのIME、実通信、低速端末は未検証。
+- ブラウザーとjsdomのJSONをCIで保存する構成を追加。CIの結果はPRの最新コミットで別途確認します。
+- 手順・測定定義・残った負荷: [benchmarks/README.md](./benchmarks/README.md)。実測値: [benchmarks/RESULTS.md](./benchmarks/RESULTS.md)。各試行の集計前の時間とカウンターは`benchmarks/samples.csv`/`store-samples.csv`。
