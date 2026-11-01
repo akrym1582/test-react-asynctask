@@ -17,6 +17,12 @@ it.each([10, 100, 500])(
     ] as Scenario[]) {
       const result = await measureForm(size, scenario);
       expect(result.savedLatest).toBe(true);
+      if (scenario === "blur-one") {
+        expect(result.fieldCommits.slice(1).every((count) => count === 0)).toBe(
+          true,
+        );
+      }
+      expect(result.notifications).toBeLessThanOrEqual(5 * size + 30);
       if (scenario === "state-one") {
         expect(result.fieldCommits.slice(1).every((count) => count === 0)).toBe(
           true,

@@ -9,7 +9,7 @@
 | ------------------------------------------------------ | -------------------------------------------------------- |
 | タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                     |
 | 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAfterTasksField.ts` |
-| 入力UIも共通化する                                     | 上記3ファイル + `AfterTasksInput.tsx`                    |
+| 入力UIも共通化する                                     | 入力Hookの3ファイル + `AfterTasksInput.tsx`              |
 | 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）              |
 | formのIME・Enter送信を補助する                         | 必要に応じて`useAfterTasksSubmit.ts`を追加               |
 
@@ -17,10 +17,8 @@
 // 必須の中心ファイル
 import { AfterTasksProvider, useAfterTasks } from "./AfterTasks";
 // 以下は利用するものだけimportします。
-import {
-  useAfterTasksField,
-  useAfterTasksFieldState,
-} from "./useAfterTasksField";
+import { useAfterTasksField } from "./useAfterTasksField";
+import { useAfterTasksFieldState } from "./useAfterTasksField";
 import { AfterTasksInput } from "./AfterTasksInput";
 import { useAfterTasksSubmit } from "./useAfterTasksSubmit";
 import { useLatestCommitted } from "./useLatestCommitted";
@@ -77,7 +75,8 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async cont
 `useAfterTasksField`を使えば、DOMは通常のinputや既存UIライブラリーの部品を使えます。`useAfterTasksFieldState`は同じファイルにある状態表示用Hookです。
 
 ```tsx
-import { useAfterTasksField, useAfterTasksFieldState } from "./useAfterTasksField";
+import { useAfterTasksField } from "./useAfterTasksField";
+import { useAfterTasksFieldState } from "./useAfterTasksField";
 
 const [name, setName] = useState("");
 const nameField = useAfterTasksField({

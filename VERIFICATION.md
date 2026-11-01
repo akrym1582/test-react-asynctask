@@ -66,3 +66,33 @@ APIがthrow/rejectした場合はonErrorへ通知し、action終了後にisRunni
 - React 18のローカル性能、本番ビルド、実OSのIME、実通信、低速端末は未検証。
 - ブラウザーとjsdomのJSONをCIで保存する構成を追加。CIの結果はPRの最新コミットで別途確認します。
 - 手順・測定定義・残った負荷: [benchmarks/README.md](./benchmarks/README.md)。実測値: [benchmarks/RESULTS.md](./benchmarks/RESULTS.md)。各試行の集計前の時間とカウンターは`benchmarks/samples.csv`/`store-samples.csv`。
+
+## 購読分離（PR #1からの派生）
+
+内部待機・汎用subscribeは従来どおり全変更を通知します。Reactの共有状態購読はsubscribeSnapshotへ、入力Hookはkey別購読へ分離しました。入力Hookは状態購読を伴わない内部store取得Hookを使います。中心ファイルのReact以外への依存は追加していません。
+
+ローカル66テスト、型、lint、整形、コピー5構成、build、jsdomベンチマークが成功。keyの複数購読・解除・再mount、共有snapshot不変時にも内部通知が届くこと、1項目blurで他項目commit=0、全条件の通知数が5N+30以内であることを回帰検証します。
+
+500項目blur-allは前回375.302ms/2,508,510配信から、今回81.175ms/1,513配信。入力commitは4,000→2,000。blur-oneは82.483ms/3,002commitから12.224ms/4commitでした。jsdom・7回中央値であり、実ブラウザー速度は未検証です。1項目state更新は今回6.496msと前回3.074msより遅い試行結果で、全条件の高速化は主張しません。
+
+計測は新しい共有状態・key別購読も含めて配信数を合算しています。前回はその購読が汎用subscribeに集約されていました。内部waitの直接listenerは両方とも含みません。時刻は同一環境でも別実行のため参考値です。詳細は[購読分離の結果](./benchmarks/SUBSCRIPTIONS_RESULTS.md)。前節とRESULTS.mdは分離前の履歴です。
+
+## 状態表示Hookのファイル分離
+
+useAfterTasksFieldStateをsrc/useAfterTasksFieldState.tsへ移動しました。対応テストはtests/useAfterTasksFieldState.test.tsxです。入力UI側から状態購読のケースを移し、66件の検証内容を維持しています。コピー検証は入力Hook単独と状態表示Hookを分けた6構成です。import先とREADME・AGENTS.mdも更新しました。
+
+## 入力Hookと内部storeの分離
+
+useAfterTasksField.tsはReact接続のみとし、管理本体をafterTasksFieldStore.tsへ移動しました。Hookテスト3件、storeテスト6件に振り分け、全66件を維持。型・lint・整形・コピー6構成・buildが成功。コピー構成表と内部参照先を更新しました。
+
+## 入力関連の1ファイル集約（最終構成）
+
+上記の分離構成を更新し、useAfterTasksField・入力store・useAfterTasksFieldStateをsrc/useAfterTasksField.tsへ集約しました。テストもtests/useAfterTasksField.test.tsxへ全件移し、全66件を維持。コピー検証は5構成へ戻し、import・README・AGENTS.mdを揃えました。購読分離の動作は維持しています。
+
+## CIのブラウザー準備停滞への対策
+
+run 41258647621 / job 124707107409はPlaywright install --with-depsの途中で停止し、テスト本体は未開始でした。進行中ログの取得は404で、apt/CDNのどこが原因かは未特定です。
+
+ブラウザーjobを公式mcr.microsoft.com/playwright:v1.58.2-nobleへ変更し、ブラウザー・OS依存のインストール工程を除去。npmパッケージとのバージョン一致を検査します。jobは20分、npm ciは5分、テストは10分、artifactは2分で打ち切ります。3ブラウザーはworkers=1で順次実行し、同一PRの古いrunはconcurrencyで取消します。pushはmainに限定し、PRとの二重検証を防ぎます。
+
+この変更前から実行中のrunには新しいtimeout/concurrencyは遡及適用されません。公式コンテナーのpullと実ブラウザーの実行結果は新しいCIで確認が必要です。

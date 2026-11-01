@@ -16,6 +16,7 @@ import {
 } from "../src/AfterTasks";
 import {
   createAfterTasksFieldStore,
+  useAfterTasksFieldState,
   useAfterTasksField,
 } from "../src/useAfterTasksField";
 import { deferred, never } from "./helpers";
@@ -136,6 +137,34 @@ it("通常inputでも次のblur前の再編集で古い結果を無効化する"
   fireEvent.click(screen.getByText("save"));
   await act(async () => current.resolve("latest"));
   await waitFor(() => expect(saved).toHaveBeenCalledExactlyOnceWith("latest"));
+});
+
+// 状況: 同じkeyを2箇所で購読し、片方を解除して編集・破棄・再mountします。
+// 期待: 他keyへ通知せず、残った購読は再mount後も有効です。
+it("入力keyの購読を独立して解除し再mountでも維持する", () => {
+  const store = createAfterTasksStore();
+  const fields = createAfterTasksFieldStore(store);
+  const first = vi.fn();
+  const second = vi.fn();
+  const other = vi.fn();
+  const off = fields.subscribe("a", first);
+  fields.subscribe("a", second);
+  fields.subscribe("b", other);
+  const config = () => ({ normalize: (v: string) => v, onCommit: () => {} });
+  const a = fields.mountField("a", "", config);
+  first.mockClear();
+  second.mockClear();
+  off();
+  a.change("x");
+  expect(first).not.toHaveBeenCalled();
+  expect(second).toHaveBeenCalledTimes(1);
+  expect(other).not.toHaveBeenCalled();
+  a.dispose();
+  const next = fields.mountField("a", "", config);
+  second.mockClear();
+  next.change("y");
+  expect(second).toHaveBeenCalledTimes(1);
+  next.dispose();
 });
 
 // 確認する状況: Aの確定処理を開始し、次のblurより前にBへ編集してからAの結果を返します。
@@ -291,4 +320,50 @@ it("任意の入力管理を待機・再試行・Scope破棄へ接続できる",
   pending.resolve("late");
   await Promise.resolve();
   expect(commit).toHaveBeenCalledTimes(1);
+});
+
+function Input() {
+  const [value, setValue] = useState("");
+  const field = useAfterTasksField({
+    taskKey: "x",
+    value,
+    normalize: async () => {
+      throw Error("bad");
+    },
+    onCommit: setValue,
+  });
+  return (
+    <input
+      aria-label="value"
+      value={value}
+      onChange={(e) => {
+        field.change(e.target.value);
+        setValue(e.target.value);
+      }}
+      onBlur={field.commit}
+    />
+  );
+}
+function Status() {
+  const field = useAfterTasksFieldState("x");
+  return <output>{field.phase}</output>;
+}
+// 確認する状況: 入力と別のコンポーネントで同じkeyの状態を購読し、blurの正規化を失敗させます。
+// 期待する結果: 初期cleanからdirtyへ変化し、保存を押さずにerrorを表示します。
+it("別コンポーネントから入力状態とblur失敗を購読する", async () => {
+  render(
+    <AfterTasksProvider>
+      <Input />
+      <Status />
+    </AfterTasksProvider>,
+  );
+  expect(screen.getByRole("status").textContent).toBe("clean");
+  fireEvent.change(screen.getByLabelText("value"), {
+    target: { value: "bad" },
+  });
+  expect(screen.getByRole("status").textContent).toBe("dirty");
+  fireEvent.blur(screen.getByLabelText("value"));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toBe("error"),
+  );
 });

@@ -68,3 +68,7 @@ node scripts/summarize-benchmark.mjs benchmark-results/current-jsdom.json ../aft
 - prepareはdirtyだけを走査しますが、全件dirtyなら開始・完了の通知中にも残ったdirtyの確認が入ります。全件dirtyの一括確定では追加の走査が残る可能性があります。フォーム時間だけでその寄与は分離できていません。
 
 購読経路を公開状態・入力key・内部待機へ分離する案はありますが、内部待機は公開snapshotが同じでも通知を必要とします。単純に通知を削る修正では正しさを保てません。今回の実測だけでは互換性を保つ小さな修正の有効性まで確認できないため、本体には手を加えていません。今回の回帰検証とブラウザーArtifactsを基準に、別の変更として評価できます。
+
+## 購読分離後の測定
+
+上のRESULTS.mdと「残った負荷」はPR #1時点の履歴です。派生実装では共有snapshotと入力keyの通知を分離し、入力Hookの共有状態購読を除去しました。ベンチマークは汎用subscribeに加えてsubscribeSnapshot・入力storeのsubscribeも計数します。新しい結果は[SUBSCRIPTIONS_RESULTS.md](./SUBSCRIPTIONS_RESULTS.md)を参照してください。内部waitの直接listenerは引き続き測定対象外です。全件操作の通知配信は線形になりましたが、親の配列state更新などの処理時間までO(N)になったと断定しません。

@@ -75,7 +75,8 @@ function Example() {
     name: "fields",
     files: ["AfterTasks.tsx", "useLatestCommitted.ts", "useAfterTasksField.ts"],
     usage: `
-import { useAfterTasksField, useAfterTasksFieldState } from "./useAfterTasksField";
+import { useAfterTasksField } from "./useAfterTasksField";
+import { useAfterTasksFieldState } from "./useAfterTasksField";
 function Example() {
   const field = useAfterTasksField({ taskKey: "name", value: "", normalize: v => v.trim(), onCommit: () => {} });
   const snapshot = useAfterTasksFieldState("name");

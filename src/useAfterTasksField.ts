@@ -1,5 +1,5 @@
 /**
- * 入力の確定と状態表示を行う任意のHook群です。
+ * 入力の編集・確定をReactへ接続する任意Hookです。
  * AfterTasks.tsx・useLatestCommitted.tsとこのファイルをコピーすると、通常のinputで利用できます。
  * Contextで直接タスクを登録するだけなら、このファイルは不要です。
  */
@@ -11,9 +11,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  useAfterTasks,
-  type AfterTasksStore,
+  useAfterTasksStoreInternal,
   type AfterTasksTimeout,
+  type AfterTasksStore,
   type AfterTasksHandle,
 } from "./AfterTasks";
 import { useLatestCommitted } from "./useLatestCommitted";
@@ -22,31 +22,6 @@ import { useLatestCommitted } from "./useLatestCommitted";
 const useCommitEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 // SSR用のsnapshotは同じオブジェクトを返し、購読による不要な再レンダーを避けます。
-/** 任意の入力管理が公開する状態。dirtyは編集中の未確定値です。 */
-export type AfterTasksFieldSnapshot = Readonly<{
-  phase: "clean" | "dirty" | "pending" | "error" | "disposed";
-  error?: unknown;
-}>;
-const cleanField: AfterTasksFieldSnapshot = Object.freeze({ phase: "clean" });
-
-/**
- * blur失敗を保存ボタンが押される前から表示するための購読Hookです。
- * 入力そのものは登録しません。useAfterTasksField等が登録したtaskKeyを指定します。
- * @example
- * import { useAfterTasksFieldState } from "./useAfterTasksField";
- * const field = useAfterTasksFieldState("name");
- * return field.phase === "error" ? <span role="alert">入力を確認してください</span> : null;
- */
-export function useAfterTasksFieldState(key: string): AfterTasksFieldSnapshot {
-  const store = useAfterTasks();
-  const fields = createAfterTasksFieldStore(store);
-  return useSyncExternalStore(
-    store.subscribe,
-    () => fields.getFieldSnapshot(key),
-    () => cleanField,
-  );
-}
-
 /** 入力の値、値を確定する処理、その結果をstateへ反映する処理を指定します。 */
 export type AfterTasksFieldOptions = {
   /** 同じProvider内の入力ごとに異なる名前を指定します。 */
@@ -85,7 +60,7 @@ export type AfterTasksFieldOptions = {
  * }} onBlur={nameField.commit} />;
  */
 export function useAfterTasksField(options: AfterTasksFieldOptions) {
-  const store = useAfterTasks();
+  const store = useAfterTasksStoreInternal();
   const fields = createAfterTasksFieldStore(store);
   const { taskKey, value, resetKey, timeoutMs } = options;
   if (
@@ -120,7 +95,10 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
   }, [resetKey, value]);
   // 既に取得したstoreを使い、useAfterTasksを重複して購読しません。
   const snapshot = useSyncExternalStore(
-    store.subscribe,
+    useCallback(
+      (listener: () => void) => fields.subscribe(taskKey, listener),
+      [fields, taskKey],
+    ),
     () => fields.getFieldSnapshot(taskKey),
     () => cleanField,
   );
@@ -132,6 +110,36 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
   const reset = useCallback((input: string) => field.current?.reset(input), []);
   return { change, commit, reset, ...snapshot };
 }
+
+/**
+ * blur失敗を保存ボタンが押される前から表示するための購読Hookです。
+ * 入力そのものは登録しません。useAfterTasksField等が登録したtaskKeyを指定します。
+ * @example
+ * import { useAfterTasksFieldState } from "./useAfterTasksField";
+ * const field = useAfterTasksFieldState("name");
+ * return field.phase === "error" ? <span role="alert">入力を確認してください</span> : null;
+ */
+export function useAfterTasksFieldState(key: string): AfterTasksFieldSnapshot {
+  const store = useAfterTasksStoreInternal();
+  const fields = createAfterTasksFieldStore(store);
+  return useSyncExternalStore(
+    useCallback(
+      (listener: () => void) => fields.subscribe(key, listener),
+      [fields, key],
+    ),
+    () => fields.getFieldSnapshot(key),
+    () => cleanField,
+  );
+}
+
+/** 任意の入力管理が公開する状態。dirtyは編集中の未確定値です。 */
+export type AfterTasksFieldSnapshot = Readonly<{
+  phase: "clean" | "dirty" | "pending" | "error" | "disposed";
+  error?: unknown;
+}>;
+const cleanField: AfterTasksFieldSnapshot = Object.freeze({
+  phase: "clean",
+});
 
 type FieldConfig = {
   normalize: (
@@ -172,6 +180,10 @@ function synchronousCommit(result: unknown) {
 }
 function makeFieldStore(store: AfterTasksStore) {
   const fields = new Map<string, Field>();
+  const listeners = new Map<string, Set<() => void>>();
+  const notifyField = (key: string) => {
+    for (const listener of [...(listeners.get(key) ?? [])]) listener();
+  };
   const dirtyFields = new Set<Field>();
   const pendingFields = new Set<Field>();
   let detach: (() => void) | undefined;
@@ -209,6 +221,7 @@ function makeFieldStore(store: AfterTasksStore) {
       pendingFields.delete(field);
       if (next.phase === "dirty") dirtyFields.add(field);
       if (next.phase === "pending") pendingFields.add(field);
+      notifyField(key);
       store.notifyChange();
     };
     const reset = (input: string) => {
@@ -285,10 +298,24 @@ function makeFieldStore(store: AfterTasksStore) {
     fields.set(key, field);
     if (!detach) detach = store.registerParticipant(participant);
     else store.notifyChange();
+    notifyField(key);
     return field;
   }
 
   return {
+    // 入力の状態はそのkeyを表示する購読者だけへ通知します。
+    subscribe(key: string, listener: () => void) {
+      let bucket = listeners.get(key);
+      if (!bucket) {
+        bucket = new Set();
+        listeners.set(key, bucket);
+      }
+      bucket.add(listener);
+      return () => {
+        bucket.delete(listener);
+        if (!bucket.size) listeners.delete(key);
+      };
+    },
     mountField,
     getFieldSnapshot: (key: string) =>
       fields.get(key)?.snapshot() ?? cleanField,

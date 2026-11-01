@@ -1,10 +1,19 @@
 name: AfterTasks checks
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+# 同じPRへの更新は古い検証を中止し、最新コミットを優先します。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         react: ["18", "19"]
@@ -15,8 +24,10 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+        timeout-minutes: 5
       - if: matrix.react == '18'
         run: npm install --no-save react@18.3.1 react-dom@18.3.1 @types/react@18 @types/react-dom@18
+        timeout-minutes: 5
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck
@@ -24,6 +35,12 @@ jobs:
       - run: npm test
   browser:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # ブラウザーとOS依存を同梱。毎回のapt/CDNインストール待ちをなくします。
+    # package.jsonの@playwright/testと同じバージョンに更新してください。
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --ipc=host
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,11 +48,19 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm run test:browser
-      # 失敗時はActionsのArtifactsからレポート・トレース・画面を確認できます。
+        timeout-minutes: 5
+      - name: Check Playwright image compatibility
+        run: node -e 'const v = require("@playwright/test/package.json").version; if (v !== "1.58.2") throw new Error("Update the Playwright container image to v" + v);'
+      # 測定中のブラウザー同士のCPU競合を抑え、全3ブラウザーを順番に検証します。
+      - run: npm run test:browser -- --workers=1
+        timeout-minutes: 10
+        env:
+          # rootで起動するFirefoxにはroot所有のホームが必要です。
+          # GitHubがマウントする/github/homeとの所有者不一致を避けます。
+          HOME: /root
       - uses: actions/upload-artifact@v4
         if: failure()
+        timeout-minutes: 2
         with:
           name: playwright-failure-report
           path: |
@@ -43,7 +68,8 @@ jobs:
             test-results/
           retention-days: 7
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
         with:
           name: aftertasks-browser-benchmark
           path: test-results/

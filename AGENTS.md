@@ -7,7 +7,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 ## ファイル構成と依存の方向
 
 - `src/AfterTasks.tsx`が中心ファイルです。Context、タスク登録・待機、任意機能を待機へ接続する内部契約、`useAfterTasks`を持ちます。React以外の実行時importを追加しないでください。この1ファイルだけで利用できることを維持します。
-- `src/useAfterTasksField.ts`は任意の入力Hook群です。`useAfterTasksField`、`useAfterTasksFieldState`、`AfterTasksFieldOptions`をまとめます。中心ファイルと`useLatestCommitted.ts`に依存し、入力の世代・dirty・エラー状態の管理本体もここに置きます。
+- `src/useAfterTasksField.ts`は任意の入力Hook群です。`useAfterTasksField`、`useAfterTasksFieldState`、`AfterTasksFieldOptions`をまとめます。中心ファイルと`useLatestCommitted.ts`に依存し、入力の世代・dirty・エラー状態の管理本体も同じファイルに置きます。
 - `src/useLatestCommitted.ts`は任意の最新commit値getterです。Reactだけに依存し、Providerなしで単独利用できます。中心ファイルは公開getterを参照せず、オプション参照用のprivate helperを持ちます。
 - `src/AfterTasksInput.tsx`は任意の入力UIです。`useAfterTasksField.ts`を利用し、確定処理を重複実装しません。
 - `src/useAfterTasksSubmit.ts`は任意のformイベント補助です。IME・Enter・明示クリックを扱い、タスク管理には依存しません。
