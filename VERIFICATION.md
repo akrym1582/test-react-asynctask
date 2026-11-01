@@ -76,3 +76,7 @@ APIがthrow/rejectした場合はonErrorへ通知し、action終了後にisRunni
 500項目blur-allは前回375.302ms/2,508,510配信から、今回81.175ms/1,513配信。入力commitは4,000→2,000。blur-oneは82.483ms/3,002commitから12.224ms/4commitでした。jsdom・7回中央値であり、実ブラウザー速度は未検証です。1項目state更新は今回6.496msと前回3.074msより遅い試行結果で、全条件の高速化は主張しません。
 
 計測は新しい共有状態・key別購読も含めて配信数を合算しています。前回はその購読が汎用subscribeに集約されていました。内部waitの直接listenerは両方とも含みません。時刻は同一環境でも別実行のため参考値です。詳細は[購読分離の結果](./benchmarks/SUBSCRIPTIONS_RESULTS.md)。前節とRESULTS.mdは分離前の履歴です。
+
+## 状態表示Hookのファイル分離
+
+useAfterTasksFieldStateをsrc/useAfterTasksFieldState.tsへ移動しました。対応テストはtests/useAfterTasksFieldState.test.tsxです。入力UI側から状態購読のケースを移し、66件の検証内容を維持しています。コピー検証は入力Hook単独と状態表示Hookを分けた6構成です。import先とREADME・AGENTS.mdも更新しました。

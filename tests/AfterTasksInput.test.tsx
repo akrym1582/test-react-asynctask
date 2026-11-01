@@ -11,7 +11,7 @@ import { StrictMode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AfterTasksProvider, useAfterTasks } from "../src/AfterTasks";
 import { AfterTasksInput } from "../src/AfterTasksInput";
-import { useAfterTasksFieldState } from "../src/useAfterTasksField";
+import { useAfterTasksFieldState } from "../src/useAfterTasksFieldState";
 import { deferred } from "./helpers";
 afterEach(() => {
   cleanup();
@@ -66,26 +66,6 @@ describe("入力UIの確定・エラー表示・破棄", () => {
     await act(async () => d.resolve("normalized"));
     await waitFor(() =>
       expect(save).toHaveBeenCalledExactlyOnceWith("normalized"),
-    );
-  });
-  // 確認する状況: AfterTasksInputの正規化処理を失敗させ、blurだけを発生させます。
-  // 期待する結果: runAfterTasksを呼ばなくてもuseAfterTasksFieldStateがerrorを通知し、画面へ表示できます。
-  it("入力失敗は保存ボタンを押す前に項目状態へ反映する", async () => {
-    render(
-      <AfterTasksProvider>
-        <Form
-          normalize={async () => {
-            throw Error("bad");
-          }}
-          onSave={vi.fn()}
-        />
-      </AfterTasksProvider>,
-    );
-    const input = screen.getByLabelText("value");
-    fireEvent.change(input, { target: { value: "bad" } });
-    fireEvent.blur(input);
-    await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toBe("error"),
     );
   });
   // 確認する状況: StrictMode内の入力で処理を開始し、画面をunmountした後に処理を完了させます。
