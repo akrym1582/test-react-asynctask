@@ -54,6 +54,10 @@ jobs:
       # 測定中のブラウザー同士のCPU競合を抑え、全3ブラウザーを順番に検証します。
       - run: npm run test:browser -- --workers=1
         timeout-minutes: 10
+        env:
+          # rootで起動するFirefoxにはroot所有のホームが必要です。
+          # GitHubがマウントする/github/homeとの所有者不一致を避けます。
+          HOME: /root
       - uses: actions/upload-artifact@v4
         if: failure()
         timeout-minutes: 2
