@@ -96,3 +96,9 @@ run 41258647621 / job 124707107409はPlaywright install --with-depsの途中で�
 ブラウザーjobを公式mcr.microsoft.com/playwright:v1.58.2-nobleへ変更し、ブラウザー・OS依存のインストール工程を除去。npmパッケージとのバージョン一致を検査します。jobは20分、npm ciは5分、テストは10分、artifactは2分で打ち切ります。3ブラウザーはworkers=1で順次実行し、同一PRの古いrunはconcurrencyで取消します。pushはmainに限定し、PRとの二重検証を防ぎます。
 
 この変更前から実行中のrunには新しいtimeout/concurrencyは遡及適用されません。公式コンテナーのpullと実ブラウザーの実行結果は新しいCIで確認が必要です。
+
+## 同期blurの回帰テスト
+
+browser-tests/synchronous-blur.spec.tsにタスク未登録の同期blur検証を追加しました。自然なblurに続く通常のonClickと、自然なblurを防いだrunAfterTasksの自動blurの2ケースを、StrictMode下でChromium/Firefox/WebKit（計6件）に適用します。未整形の入力から実クリック1回で、blur→保存の順序、更新済みstateの保存、保存1回を確認します。blurとclickの間にテスト側の待機操作を挟みません。
+
+ローカルのlint・整形・型チェックと6件のテスト検出は成功。ローカルはブラウザー実行ファイルがないため実ブラウザー動作は未検証で、PRのCIで確認します。ブラウザージョブは既存12件と追加6件の計18件となります。
