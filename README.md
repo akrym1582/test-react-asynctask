@@ -266,6 +266,40 @@ CIはReact 18/19の単体・型・コピー検証と、3種類のブラウザー
 
 Windows日本語IME + Chrome/Edge、macOS日本語入力 + Safariで、入力→変換→Enter確定→別Enter保存、変換候補表示中の保存クリック、Space変換、Tab移動を確認します。変換確定だけで保存されず、明示した保存が1回だけ実行されること、保存値が正規化後の値であることを確認してください。合成compositionイベントの成功を実OSの検証済みとは扱いません。
 
+## 同期blurはタスク登録が必要か
+
+**同期的な整形と通常のsetStateだけなら、registerAsyncTaskへの登録は不要です。** onBlurへ直接書けます。同期関数も登録できますが、同期blurのためだけに登録する必要はありません。
+
+通常のフォーカス移動で「blur → click」と別々のユーザーイベントが発生する場合は、blurの同期処理が終了し、通常のReactのstate更新が反映されてからclick側のハンドラーが動きます。これはstartTransitionによる更新や、依存配列の不足などで古い値を閉じ込めたハンドラーには当てはまりません。
+
+一方、**同じclickハンドラーの中でblur()を呼んでも、そのハンドラーが参照するstate変数は更新されません。**
+
+```tsx
+// 注意: onBlurでsetValueしても、このvalueはclick開始時のレンダーの値です。
+const handleClick = () => {
+  inputRef.current?.blur();
+  save(value);
+};
+```
+
+保存をrunAfterTasksへ渡せば、登録タスクがない場合でも、既定の自動blurと再レンダーを経て、更新後のstateを参照するactionで保存できます。
+
+```tsx
+import { useAfterTasks } from "./AfterTasks";
+
+// AfterTasksProviderの配下で使います。
+const { runAfterTasks, isRunning } = useAfterTasks(() => save(value), {
+  onError: showError,
+});
+
+// 同期blurは直接setStateして構いません。
+// <input value={value} onChange={e => setValue(e.currentTarget.value)}
+//   onBlur={e => setValue(e.currentTarget.value.trim())} />
+// <button onClick={runAfterTasks} disabled={isRunning}>保存</button>
+```
+
+非同期blurは、最初のawaitより前にregisterAsyncTaskを呼び、完了まで待つ処理を登録してください。未登録の非同期処理は自動検出しません。Enter送信などでは自然なblurが発生しない場合があるため、保存経路をrunAfterTasksに揃えると自動blurも利用できます。blurActiveElement:falseを指定した場合は、自動blurは行いません。
+
 ## 自動フォーカス解除のオプション
 
 `blurActiveElement`は省略時trueです。実行順序は、重複要求の排除 → フォーカス中のHTML要素のblur → beforeWait → 入力確定・タスク待機 → 再レンダー → actionです。

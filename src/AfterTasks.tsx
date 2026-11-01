@@ -11,6 +11,14 @@
  *    同じProvider配下の子孫が登録したタスクと、待機途中に追加されたタスクも対象となる。
  *    blocking:falseの背景処理は保存の待機対象に含めない。
  *
+ * 同期blurと登録の使い分け:
+ * - 同期的な整形と通常のsetStateだけなら、onBlurで直接実行でき、タスク登録は不要。
+ * - 自然なフォーカス移動でblurの後に別イベントのclickが届く場合、通常のstate更新は
+ *   clickまでに反映される。startTransitionによる更新や、古い値を閉じ込めたハンドラーは対象外。
+ * - 同じclick内でelement.blur(); save(value);と続けても、そのハンドラーのvalueは更新されない。
+ *   runAfterTasksを使うと、同期blurだけで登録タスクがない場合も再レンダー後のactionで保存できる。
+ * - 非同期blurは最初のawaitより前に登録する。Enter送信などでは自然なblurが起きない場合もある。
+ *
  * 登録とstate反映:
  * - 同期処理・非同期処理とも登録でき、戻り値なしで直接setStateする形でも利用できる。
  * - 非同期処理は必ずawaitするかPromiseをreturnする。未登録のPromiseは自動検出しない。
@@ -300,6 +308,8 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   /**
    * 通信開始前にsignalを準備できるfactory形式。同期throwもタスクの失敗へ変換します。
    * key省略時は自動UUIDで独立登録し、全件を待機します。固定keyの再登録時だけ古い結果を無効化します。
+   * 同期blurの整形と通常のsetStateだけなら登録は不要です。保存にはrunAfterTasksを使い、
+   * blurによるstate更新がcommitされた後のactionを実行できます。
    * @param factory signalを受け取り処理を開始する関数。同期・非同期どちらも指定できます。
    * 値やPromiseを返すほか、直接setStateして何も返さない（void）形でも登録できます。
    * 待機対象の非同期処理は必ずawaitするか、そのPromiseをreturnしてください。
