@@ -6,7 +6,10 @@ import {
   useAfterTasks,
   type AfterTasksStore,
 } from "../src/AfterTasks";
-import { useAfterTasksField } from "../src/useAfterTasksField";
+import {
+  createAfterTasksFieldStore,
+  useAfterTasksField,
+} from "../src/useAfterTasksField";
 
 export type Scenario =
   "register" | "blur-all" | "blur-one" | "save-dirty" | "state-one";
@@ -65,16 +68,23 @@ export async function measureForm(
   let actionCalled = false;
 
   // テスト専用の購読ラッパー。通知「回数」は全購読者への配信回数の合計です。
-  // 待機内部の直接登録listenerは含まず、公開subscribe経由の負荷を測ります。
+  // 内部waitの直接listenerを除き、共有状態・入力key・汎用購読を合計します。
   function Probe() {
     store = useAfterTasks();
     if (!instrumented) {
+      const count = (listener: () => void) => () => {
+        if (measuring) result.notifications++;
+        listener();
+      };
       const subscribe = store.subscribe;
-      store.subscribe = (listener) =>
-        subscribe(() => {
-          if (measuring) result.notifications++;
-          listener();
-        });
+      store.subscribe = (listener) => subscribe(count(listener));
+      const snapshotSubscribe = store.subscribeSnapshot;
+      store.subscribeSnapshot = (listener) =>
+        snapshotSubscribe(count(listener));
+      const fieldStore = createAfterTasksFieldStore(store);
+      const fieldSubscribe = fieldStore.subscribe;
+      fieldStore.subscribe = (key, listener) =>
+        fieldSubscribe(key, count(listener));
       instrumented = true;
     }
     return null;

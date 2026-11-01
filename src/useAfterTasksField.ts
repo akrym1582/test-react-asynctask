@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  useAfterTasks,
+  useAfterTasksStoreInternal,
   type AfterTasksStore,
   type AfterTasksTimeout,
   type AfterTasksHandle,
@@ -38,10 +38,13 @@ const cleanField: AfterTasksFieldSnapshot = Object.freeze({ phase: "clean" });
  * return field.phase === "error" ? <span role="alert">入力を確認してください</span> : null;
  */
 export function useAfterTasksFieldState(key: string): AfterTasksFieldSnapshot {
-  const store = useAfterTasks();
+  const store = useAfterTasksStoreInternal();
   const fields = createAfterTasksFieldStore(store);
   return useSyncExternalStore(
-    store.subscribe,
+    useCallback(
+      (listener: () => void) => fields.subscribe(key, listener),
+      [fields, key],
+    ),
     () => fields.getFieldSnapshot(key),
     () => cleanField,
   );
@@ -85,7 +88,7 @@ export type AfterTasksFieldOptions = {
  * }} onBlur={nameField.commit} />;
  */
 export function useAfterTasksField(options: AfterTasksFieldOptions) {
-  const store = useAfterTasks();
+  const store = useAfterTasksStoreInternal();
   const fields = createAfterTasksFieldStore(store);
   const { taskKey, value, resetKey, timeoutMs } = options;
   if (
@@ -120,7 +123,10 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
   }, [resetKey, value]);
   // 既に取得したstoreを使い、useAfterTasksを重複して購読しません。
   const snapshot = useSyncExternalStore(
-    store.subscribe,
+    useCallback(
+      (listener: () => void) => fields.subscribe(taskKey, listener),
+      [fields, taskKey],
+    ),
     () => fields.getFieldSnapshot(taskKey),
     () => cleanField,
   );
@@ -172,6 +178,10 @@ function synchronousCommit(result: unknown) {
 }
 function makeFieldStore(store: AfterTasksStore) {
   const fields = new Map<string, Field>();
+  const listeners = new Map<string, Set<() => void>>();
+  const notifyField = (key: string) => {
+    for (const listener of [...(listeners.get(key) ?? [])]) listener();
+  };
   const dirtyFields = new Set<Field>();
   const pendingFields = new Set<Field>();
   let detach: (() => void) | undefined;
@@ -209,6 +219,7 @@ function makeFieldStore(store: AfterTasksStore) {
       pendingFields.delete(field);
       if (next.phase === "dirty") dirtyFields.add(field);
       if (next.phase === "pending") pendingFields.add(field);
+      notifyField(key);
       store.notifyChange();
     };
     const reset = (input: string) => {
@@ -285,10 +296,24 @@ function makeFieldStore(store: AfterTasksStore) {
     fields.set(key, field);
     if (!detach) detach = store.registerParticipant(participant);
     else store.notifyChange();
+    notifyField(key);
     return field;
   }
 
   return {
+    // 入力の状態はそのkeyを表示する購読者だけへ通知します。
+    subscribe(key: string, listener: () => void) {
+      let bucket = listeners.get(key);
+      if (!bucket) {
+        bucket = new Set();
+        listeners.set(key, bucket);
+      }
+      bucket.add(listener);
+      return () => {
+        bucket.delete(listener);
+        if (!bucket.size) listeners.delete(key);
+      };
+    },
     mountField,
     getFieldSnapshot: (key: string) =>
       fields.get(key)?.snapshot() ?? cleanField,

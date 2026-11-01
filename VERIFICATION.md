@@ -66,3 +66,13 @@ APIがthrow/rejectした場合はonErrorへ通知し、action終了後にisRunni
 - React 18のローカル性能、本番ビルド、実OSのIME、実通信、低速端末は未検証。
 - ブラウザーとjsdomのJSONをCIで保存する構成を追加。CIの結果はPRの最新コミットで別途確認します。
 - 手順・測定定義・残った負荷: [benchmarks/README.md](./benchmarks/README.md)。実測値: [benchmarks/RESULTS.md](./benchmarks/RESULTS.md)。各試行の集計前の時間とカウンターは`benchmarks/samples.csv`/`store-samples.csv`。
+
+## 購読分離（PR #1からの派生）
+
+内部待機・汎用subscribeは従来どおり全変更を通知します。Reactの共有状態購読はsubscribeSnapshotへ、入力Hookはkey別購読へ分離しました。入力Hookは状態購読を伴わない内部store取得Hookを使います。中心ファイルのReact以外への依存は追加していません。
+
+ローカル66テスト、型、lint、整形、コピー5構成、build、jsdomベンチマークが成功。keyの複数購読・解除・再mount、共有snapshot不変時にも内部通知が届くこと、1項目blurで他項目commit=0、全条件の通知数が5N+30以内であることを回帰検証します。
+
+500項目blur-allは前回375.302ms/2,508,510配信から、今回81.175ms/1,513配信。入力commitは4,000→2,000。blur-oneは82.483ms/3,002commitから12.224ms/4commitでした。jsdom・7回中央値であり、実ブラウザー速度は未検証です。1項目state更新は今回6.496msと前回3.074msより遅い試行結果で、全条件の高速化は主張しません。
+
+計測は新しい共有状態・key別購読も含めて配信数を合算しています。前回はその購読が汎用subscribeに集約されていました。内部waitの直接listenerは両方とも含みません。時刻は同一環境でも別実行のため参考値です。詳細は[購読分離の結果](./benchmarks/SUBSCRIPTIONS_RESULTS.md)。前節とRESULTS.mdは分離前の履歴です。

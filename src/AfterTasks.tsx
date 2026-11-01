@@ -250,6 +250,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   const failures = new Map<string | symbol, AfterTasksError>();
   const participants = new Set<AfterTasksParticipant>();
   const listeners = new Set<() => void>();
+  const snapshotListeners = new Set<() => void>();
   // タスクの件数だけでは「追加されてすぐ完了した処理」を検出できません。
   // 条件が変わるたびにrevisionを進め、Hook側で再レンダーの必要性を判定します。
   let revision = 0;
@@ -278,8 +279,10 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       next.hasPendingTasks !== actionSnapshot.hasPendingTasks ||
       next.phase !== actionSnapshot.phase ||
       next.requestId !== actionSnapshot.requestId
-    )
+    ) {
       actionSnapshot = next;
+      for (const listener of [...snapshotListeners]) listener();
+    }
     notify();
   };
   const changed = () => {
@@ -529,6 +532,13 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
         if (task.blocking) task.cancel("cancelled");
     },
     getRevision: () => revision,
+    /** @internal 公開状態が変わったときだけReactへ通知します。 */
+    subscribeSnapshot(listener: () => void) {
+      snapshotListeners.add(listener);
+      return () => {
+        snapshotListeners.delete(listener);
+      };
+    },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -585,6 +595,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
           owner?.controller.abort();
           changed();
           listeners.clear();
+          snapshotListeners.clear();
         });
       };
     },
@@ -669,6 +680,12 @@ export function useAfterTasks(
   // 入力Hookの購読・mountを安定させるため、登録だけの利用では同じstoreを返します。
   return action ? { ...store, ...execution } : store;
 }
+/** @internal 任意の入力Hook用。状態を購読せず、Providerのstoreを取得します。 */
+export function useAfterTasksStoreInternal(): AfterTasksStore {
+  const store = useContext(AfterTasksStoreContext);
+  if (!store) throw new Error("AfterTasksProviderが必要です");
+  return store;
+}
 const registrationOptions: AfterTasksRunOptions = { onError: console.error };
 // coreのエラー通知・準備オプションを、破棄されたレンダーから読まないための内部getterです。
 // 公開の任意Hook(useLatestCommitted.ts)をimportせず、中心ファイル単独で動作させます。
@@ -738,7 +755,7 @@ function useAfterTasksExecution(
   options: AfterTasksRunOptions,
 ): AfterTasksExecution {
   const snapshot = useSyncExternalStore(
-    store.subscribe,
+    store.subscribeSnapshot,
     store.getSnapshot,
     () => idleAction,
   );
