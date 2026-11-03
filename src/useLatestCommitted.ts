@@ -1,7 +1,5 @@
 /** 最新のcommit済み値が必要な画面で追加する、任意のHookです。Reactだけに依存します。 */
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
-const useCommitEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 /**
  * 最新のcommit済み値を読む安定したgetterを返します。
@@ -18,7 +16,7 @@ const useCommitEffect =
  */
 export function useLatestCommitted<T>(value: T): () => T {
   const ref = useRef(value);
-  useCommitEffect(() => {
+  useLayoutEffect(() => {
     ref.current = value;
   });
   return useCallback(() => ref.current, []);

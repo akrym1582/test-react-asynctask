@@ -72,8 +72,6 @@ import {
   type ReactNode,
 } from "react";
 
-const useCommitEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
 /** ミリ秒。nullは期限なし。0/負数/NaN/Infinityは指定できません。 */
 export type AfterTasksTimeout = number | null;
 export type AfterTasksErrorKind =
@@ -624,10 +622,7 @@ export type AfterTasksExecution = AfterTasksSnapshot & {
   runAfterTasks: () => void;
 };
 // Providerがないブラウザー画面では、このモジュールを使うすべてのHookが同じstoreを参照します。
-// SSRではモジュールが複数リクエストで再利用されるので、共有storeを作りません。
-const AfterTasksStoreContext = createContext<AfterTasksStore | null>(
-  typeof window === "undefined" ? null : createAfterTasksStore(),
-);
+const AfterTasksStoreContext = createContext(createAfterTasksStore());
 /**
  * フォームごとに置く管理範囲です。この範囲内の入力を待ち、保存操作を1つに制限します。
  * configはScope作成時に固定します。変更にはProviderをkeyで再作成してください。
@@ -642,7 +637,7 @@ export function AfterTasksProvider({
   ...config
 }: AfterTasksConfig & { children: ReactNode }) {
   const [store] = useState(() => createAfterTasksStore(config));
-  useCommitEffect(() => store.attach(), [store]);
+  useLayoutEffect(() => store.attach(), [store]);
   return (
     <AfterTasksStoreContext.Provider value={store}>
       {children}
@@ -696,16 +691,14 @@ export function useAfterTasks(
 }
 /** @internal 状態を購読せず、最も近いProvider、またはブラウザー共通のstoreを取得します。 */
 export function useAfterTasksStoreInternal(): AfterTasksStore {
-  const store = useContext(AfterTasksStoreContext);
-  // ProviderなしのSSRは表示用。サーバーで共有が必要な場合はProviderで範囲を指定します。
-  return store ?? createAfterTasksStore();
+  return useContext(AfterTasksStoreContext);
 }
 const registrationOptions: AfterTasksRunOptions = { onError: console.error };
 // coreのエラー通知・準備オプションを、破棄されたレンダーから読まないための内部getterです。
 // 公開の任意Hook(useLatestCommitted.ts)をimportせず、中心ファイル単独で動作させます。
 function useCommittedOptions<T>(value: T): () => T {
   const ref = useRef(value);
-  useCommitEffect(() => {
+  useLayoutEffect(() => {
     ref.current = value;
   });
   return useCallback(() => ref.current, []);
@@ -725,7 +718,7 @@ export type AfterTasksRunOptions = {
    * 対象はdocument.activeElementで、ProviderのDOM範囲には限定されません。
    * 別フォーム・ダイアログの入力や保存ボタンからもフォーカスが外れる場合があります。
    * フォーカス維持や対象限定が必要ならfalseにし、必要に応じbeforeWaitで対象だけblurします。
-   * useAfterTasksFieldはfalseでも未確定入力を自動確定します。SSRではDOM操作を行いません。
+   * useAfterTasksFieldはfalseでも未確定入力を自動確定します。
    * iframe・Shadow DOM内部を再帰的に探索する機能ではありません。
    */
   blurActiveElement?: boolean;
@@ -771,7 +764,6 @@ function useAfterTasksExecution(
   const snapshot = useSyncExternalStore(
     store.subscribeSnapshot,
     store.getSnapshot,
-    () => idleAction,
   );
   const getOptions = useCommittedOptions(options);
   const waitTimeout = duration(
@@ -808,7 +800,7 @@ function useAfterTasksExecution(
     },
     [getOptions],
   );
-  useCommitEffect(
+  useLayoutEffect(
     () => () => {
       const current = pending.current;
       if (!current) return;
@@ -881,14 +873,9 @@ function useAfterTasksExecution(
     try {
       const currentOptions = getOptions();
       // 重複要求の排除後にblurします。blurによる再入でも二重保存を開始させません。
-      // document参照は実行時だけに限定し、SSRから呼ばれても参照エラーを起こしません。
-      if (
-        currentOptions.blurActiveElement !== false &&
-        typeof document !== "undefined"
-      ) {
+      if (currentOptions.blurActiveElement !== false) {
         const active = document.activeElement;
-        if (typeof HTMLElement !== "undefined" && active instanceof HTMLElement)
-          active.blur();
+        if (active instanceof HTMLElement) active.blur();
       }
       if (!current.active || pending.current !== current) return;
       synchronous(currentOptions.beforeWait?.(), "beforeWait");

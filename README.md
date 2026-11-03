@@ -7,7 +7,7 @@
 
 ブラウザーでは、Providerを置かずに入力欄で `useAfterTasks()`、保存ボタンで `useAfterTasks(action, options)` を呼べます。同じモジュールを使うコンポーネントはReactルートが別でも、登録タスク・エラー・保存の実行状態を共有します。共有storeは画面遷移や個々のコンポーネントのunmountをまたいで存続します。
 
-別フォームの入力を待ちたくない場合や同じ固定キーを別々に使いたい場合は、フォームごとに `AfterTasksProvider` で囲みます。Provider内の入力と保存ボタンは、そのProvider専用のstoreを使います。SSRではリクエスト間でstoreを共有しません。サーバーレンダリング中にも複数のHookで共有したい場合はProviderを使います。
+別フォームの入力を待ちたくない場合や同じ固定キーを別々に使いたい場合は、フォームごとに `AfterTasksProvider` で囲みます。Provider内の入力と保存ボタンは、そのProvider専用のstoreを使います。
 
 ## 必要なファイルだけコピーする
 
@@ -169,7 +169,7 @@ useAfterTasksはタスク完了後にstateを更新し、対応する新しい�
 | src/PlainBlurExample.tsx   | 中心ファイルだけでblurからタスク登録する例            |
 | src/LatestStateExample.tsx | await後に最新commit済み値を読む例                     |
 | src/exampleSaveAdapter.ts  | HTTPの契約例とメモリ上のfake                          |
-| tests / browser-tests      | 単体・結合・SSR・ブラウザー操作テスト                 |
+| tests / browser-tests      | 単体・結合・ブラウザー操作テスト                      |
 | scripts/check-copy.mjs     | 中心ファイル単独・任意ファイルの組み合わせを型検証    |
 | AGENTS.md                  | コード編集時に守る構成・API・コメント・検証の方針     |
 
@@ -243,7 +243,7 @@ window.open/clipboard/file pickerなどユーザー操作が必要なAPIは遅�
 
 ## 対応範囲と制約
 
-- React 18.3/19、TypeScript、ES2022以上とDOMを想定します。SSRでは処理を開始しません。Next.jsでは利用先のクライアント境界を設定してください。
+- React 18.3/19、TypeScript、ES2022以上とDOMを想定します。ブラウザー上で利用する部品です。
 - 必要なstate更新は通常優先度の確定処理で行います。startTransition/Suspense/Effectによる任意の将来の更新をすべて待つ保証はありません。
 - normalize/onCommit、beforeWait、エラーコールバックの契約を守ってください。onCommit/beforeWaitにasync関数を渡す誤用は検出しますが、既にその関数内で発生した副作用は取り消せません。
 - 任意のaction内部の直接的なUI更新・サーバー副作用も撤回できません。通信の中断・エラー表示・再送判断はAPI呼び出し側で扱ってください。
@@ -348,7 +348,7 @@ ESLintはflat configの`eslint.config.js`、Prettierは`.prettierrc.json`で設�
 | src/useLatestCommitted.ts  | tests/useLatestCommitted.test.tsx  |
 | src/exampleSaveAdapter.ts  | tests/exampleSaveAdapter.test.ts   |
 
-フォームや複数部品の連携、SSRなどの結合テストはtests/integration/に配置します。例示コンポーネントは結合テストから検証します。tests/helpers.tsはPromiseの完了タイミングなどを制御するテスト用ヘルパーです。browser-tests/は実ブラウザーでの結合テストとして別配置を維持します。npm testで単体・結合の両方を実行します。
+フォームや複数部品の連携を検証する結合テストはtests/integration/に配置します。例示コンポーネントは結合テストから検証します。tests/helpers.tsはPromiseの完了タイミングなどを制御するテスト用ヘルパーです。browser-tests/は実ブラウザーでの結合テストとして別配置を維持します。npm testで単体・結合の両方を実行します。
 
 ## keyを省略した登録と全件待機
 

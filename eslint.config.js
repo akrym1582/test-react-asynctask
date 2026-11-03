@@ -33,11 +33,7 @@ export default tseslint.config(
     // React Compilerは導入していないため、Hookの呼び出し順序と依存配列を検査します。
     rules: {
       "react-hooks/rules-of-hooks": "error",
-      // SSRで切り替えるlayout/passive effectにも、通常のeffectと同じ依存検査を適用します。
-      "react-hooks/exhaustive-deps": [
-        "error",
-        { additionalHooks: "useCommitEffect" },
-      ],
+      "react-hooks/exhaustive-deps": "error",
     },
   },
   // 整形はPrettierへ集約し、ESLintの整形ルールとの衝突を防ぎます。

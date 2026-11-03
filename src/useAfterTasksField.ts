@@ -5,7 +5,6 @@
  */
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useSyncExternalStore,
@@ -18,10 +17,6 @@ import {
 } from "./AfterTasks";
 import { useLatestCommitted } from "./useLatestCommitted";
 
-// ブラウザーではDOM反映直後に設定を更新し、SSRではlayout effectの警告を避けます。
-const useCommitEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
-// SSR用のsnapshotは同じオブジェクトを返し、購読による不要な再レンダーを避けます。
 /** 入力の値、値を確定する処理、その結果をstateへ反映する処理を指定します。 */
 export type AfterTasksFieldOptions = {
   /** 同じProvider内の入力ごとに異なる名前を指定します。 */
@@ -71,7 +66,7 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
     throw new RangeError("期限には正の有限値かnullを指定してください");
   const field = useRef<Field | null>(null);
   const getOptions = useLatestCommitted(options);
-  useCommitEffect(() => {
+  useLayoutEffect(() => {
     const current = getOptions();
     if (typeof current.value !== "string")
       throw new TypeError("入力にはstringのvalueが必要です");
@@ -83,11 +78,11 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
       if (field.current === mounted) field.current = null;
     };
   }, [fields, taskKey, getOptions]);
-  useCommitEffect(() => {
+  useLayoutEffect(() => {
     field.current?.sync(value);
   }, [value]);
   const previousReset = useRef(resetKey);
-  useCommitEffect(() => {
+  useLayoutEffect(() => {
     if (!Object.is(previousReset.current, resetKey)) {
       previousReset.current = resetKey;
       field.current?.reset(value);
@@ -100,7 +95,6 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
       [fields, taskKey],
     ),
     () => fields.getFieldSnapshot(taskKey),
-    () => cleanField,
   );
   const change = useCallback(
     (input: string) => field.current?.change(input),
@@ -128,7 +122,6 @@ export function useAfterTasksFieldState(key: string): AfterTasksFieldSnapshot {
       [fields, key],
     ),
     () => fields.getFieldSnapshot(key),
-    () => cleanField,
   );
 }
 
