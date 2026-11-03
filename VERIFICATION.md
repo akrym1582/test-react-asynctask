@@ -1,6 +1,10 @@
 # 検証結果
 
-## Providerなしの共有store（2026-11-03）
+## Hookからの直接登録とunmount
+
+`tests/integration/globalStore.test.tsx` で、登録元を閉じると別ルートの保存が再開し、残ったフォームの背景処理は続くことを確認します。同じkeyの別登録のエラー、登録処理中のunmount、古いコールバック、同じProvider内の兄弟とStrictModeでの再接続も対象です。画面切替はJSDOM上のmount・unmountで再現しています。
+
+## Providerなしの共有store（PR #4 時点）
 
 React 19.3.1とJSDOMで、異なるReactルート間のblocking待機・背景処理・保存ロック、固定keyの置換、画面をまたぐ失敗通知と再試行、Providerごとの分離、再マウント時の購読解除を検証しました。`normalize` の呼び出し中に入力をunmountするケースでは、修正前はタスクが中断されず、修正後は次画面の保存が完了しました。Vitestは新規5件を含む73件が成功しました。画面遷移はReactルートのunmount・再マウントで再現しており、新規5件の実ブラウザーでの再現は未検証です。
 
