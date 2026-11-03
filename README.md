@@ -11,7 +11,7 @@
 
 独立して保存するフォームは、**入力と保存ボタンを一組ずつ**別の `AfterTasksProvider` で囲んでください。同じstoreで同じ固定keyを直接登録すると前のタスクが取り消され、blockingタスクの失敗は別フォームの保存時にもその保存側の `onError` へ届きます。keyだけ分けても、待機とエラーは分離されません。
 
-画面遷移で入力を破棄したい場合、`useAfterTasksField` はunmount時に自分の入力タスクを取り消します。`registerAsyncTask` で共有storeに直接登録したタスクは登録元が消えても続くため、画面限りの処理はcleanupでハンドルの `cancel()` と `clearError()` を呼ぶか、その画面と一緒にunmountするProviderを使います。
+画面遷移や入力欄の取り外しで `useAfterTasks()` の登録元がunmountされると、**そのHookが登録した未完了タスク（背景処理を含む）と入力エラーは自動で解除されます**。手動のcleanupは不要です。別フォームが登録したタスクは続きます。通信も止める場合はfactoryの `signal` を `fetch` などへ渡してください。画面をまたいで続けたい処理は、遷移後もmountされている親のHookから登録します。Reactを介さず `createAfterTasksStore()` で作ったstoreに直接登録する場合は、呼び出し側が寿命を管理します。
 
 ## 必要なファイルだけコピーする
 

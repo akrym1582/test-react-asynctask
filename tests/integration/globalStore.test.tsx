@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, render, renderHook } from "@testing-library/react";
+import { StrictMode, useLayoutEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { AfterTasksProvider, useAfterTasks } from "../../src/AfterTasks";
+import {
+  AfterTasksProvider,
+  useAfterTasks,
+  useAfterTasksStoreInternal,
+} from "../../src/AfterTasks";
 import { useAfterTasksField } from "../../src/useAfterTasksField";
 import { deferred, flush, never } from "../helpers";
 
@@ -54,50 +59,131 @@ it("別フォームのblocking入力を待ち、背景処理が続いていて�
   }
 });
 
-// 入力元と保存元を順にunmountする。直接登録は残るが古い保存は再開せず、同じkeyの再登録で回復する。
-it("画面をまたぐ同一keyの置換と失敗通知を新しい保存要求に対応付ける", async () => {
-  const a = form();
+// 異なるrootでBの保存はAの入力だけを待つ。Aを閉じれば保存が進み、Bの背景処理は続く。
+it("登録元を閉じると別フォームの保存が進み、別フォームのタスクは残る", async () => {
+  const a = renderHook(() => useAfterTasks(), { wrapper: StrictMode });
+  const b = form();
   const old = deferred<void>();
   const onCommit = vi.fn();
-  let oldSignal!: AbortSignal;
+  const { registerAsyncTask } = a.result.current;
+  let signal!: AbortSignal;
+  let background!: AbortSignal;
   act(() => {
-    oldSignal = a.result.current.registerAsyncTask(() => old.promise, {
+    signal = registerAsyncTask(() => old.promise, {
       key: "route",
       onCommit,
     }).signal;
+    background = b.result.current.registerAsyncTask(never, {
+      blocking: false,
+    }).signal;
+    b.result.current.runAfterTasks();
   });
-  act(a.result.current.runAfterTasks);
+  await flush();
+  expect(b.action).not.toHaveBeenCalled();
   a.unmount();
-  const b = form();
-  expect(b.result.current.hasPendingTasks).toBe(true);
+  expect(signal.aborted).toBe(true);
+  await flush();
+  expect(b.action).toHaveBeenCalledTimes(1);
   expect(b.result.current.isRunning).toBe(false);
-  const failure = new Error("invalid");
-  act(() => {
-    b.result.current.registerAsyncTask(() => Promise.reject(failure), {
-      key: "route",
-    });
-  });
-  expect(oldSignal.aborted).toBe(true);
+  expect(background.aborted).toBe(false);
+  expect(b.result.current.hasPendingTasks).toBe(true);
+  const late = vi.fn();
+  expect(registerAsyncTask(late).getStatus()).toBe("cancelled");
+  expect(late).not.toHaveBeenCalled();
   await act(async () => old.resolve());
   expect(onCommit).not.toHaveBeenCalled();
-  expect(b.result.current.hasPendingTasks).toBe(false);
   b.unmount();
-  const c = form();
-  act(c.result.current.runAfterTasks);
+  expect(background.aborted).toBe(true);
+});
+
+// Aの失敗をBから観測し、同じkeyでBも失敗する。Aを閉じてもBのエラーは残り、Bを閉じれば保存できる。
+it("unmountは同じkeyの新しい登録元の失敗を消さない", async () => {
+  const a = form();
+  const b = form();
+  const save = form();
+  const fail = (page: ReturnType<typeof form>, message: string) =>
+    act(async () => {
+      page.result.current.registerAsyncTask(
+        () => Promise.reject(new Error(message)),
+        { key: "route" },
+      );
+    });
+  await fail(a, "A");
+  act(save.result.current.runAfterTasks);
   await flush();
-  expect(c.onError).toHaveBeenCalledTimes(1);
-  expect(c.onError.mock.calls[0][0]).toBeInstanceOf(AggregateError);
-  expect(c.onError.mock.calls[0][0].errors[0].cause).toBe(failure);
-  expect(c.action).not.toHaveBeenCalled();
-  expect(c.result.current.isRunning).toBe(false);
-  expect(a.onError).not.toHaveBeenCalled();
-  expect(a.action).not.toHaveBeenCalled();
-  await act(async () => {
-    c.result.current.registerAsyncTask(() => undefined, { key: "route" });
+  expect(save.onError.mock.calls[0][0].errors[0].cause.message).toBe("A");
+  await fail(b, "B");
+  a.unmount();
+  act(save.result.current.runAfterTasks);
+  await flush();
+  expect(save.onError.mock.calls[1][0].errors[0].cause.message).toBe("B");
+  b.unmount();
+  act(save.result.current.runAfterTasks);
+  await flush();
+  expect(save.action).toHaveBeenCalledTimes(1);
+  expect(save.onError).toHaveBeenCalledTimes(2);
+});
+
+// BがAの固定keyを置き換えた後Aを閉じる。Bは取り消されず、factory内でBを閉じても新たなタスクは残らない。
+it("同じkeyの置換と登録中のunmountで現在の所有者だけを取り消す", async () => {
+  const a = form();
+  const b = form();
+  const observer = form();
+  let first!: AbortSignal;
+  let replacement!: AbortSignal;
+  act(() => {
+    first = a.result.current.registerAsyncTask(never, { key: "route" }).signal;
+    replacement = b.result.current.registerAsyncTask(never, {
+      key: "route",
+    }).signal;
   });
-  act(c.result.current.runAfterTasks);
+  expect(first.aborted).toBe(true);
+  a.unmount();
+  expect(replacement.aborted).toBe(false);
+  let during!: AbortSignal;
+  act(() => {
+    during = b.result.current.registerAsyncTask(() => {
+      b.unmount();
+      return never();
+    }).signal;
+  });
+  expect(during.aborted).toBe(true);
+  expect(replacement.aborted).toBe(true);
+  expect(observer.result.current.hasPendingTasks).toBe(false);
+  act(observer.result.current.runAfterTasks);
   await flush();
-  expect(c.action).toHaveBeenCalledTimes(1);
+  expect(observer.action).toHaveBeenCalledTimes(1);
+});
+
+// StrictModeでeffectが再接続されても登録でき、Providerが残る間に消えた子のタスクだけを取り消す。
+it("同じProviderの兄弟は登録元だけをunmountしても独立して後始末できる", () => {
+  const a: AbortSignal[] = [];
+  const b: AbortSignal[] = [];
+  function Input({ signals }: { signals: AbortSignal[] }) {
+    const { registerAsyncTask } = useAfterTasks();
+    useLayoutEffect(() => {
+      signals.push(registerAsyncTask(never).signal);
+    }, [registerAsyncTask, signals]);
+    return null;
+  }
+  function Page({ show }: { show: boolean }) {
+    return (
+      <StrictMode>
+        <AfterTasksProvider>
+          {show && <Input signals={a} />}
+          <Input signals={b} />
+        </AfterTasksProvider>
+      </StrictMode>
+    );
+  }
+  const view = render(<Page show />);
+  expect(a.at(-1)?.aborted).toBe(false);
+  expect(b.at(-1)?.aborted).toBe(false);
+  view.rerender(<Page show={false} />);
+  expect(a.every((signal) => signal.aborted)).toBe(true);
+  expect(b.at(-1)?.aborted).toBe(false);
+  view.unmount();
+  expect(b.every((signal) => signal.aborted)).toBe(true);
 });
 
 // 各フォームのProviderで同じkeyを使う。Aのタスク・失敗・保存ロックはBに影響しない。
@@ -165,7 +251,7 @@ it("登録中のunmountでも入力タスクを取り消し、次画面へ持ち
 
 // 別rootの画面を順に開閉する。各mountが共有storeから受け取った購読解除関数を1回ずつ呼ぶ。
 it("画面を閉じるたびにそのrootの状態購読を解除する", () => {
-  const observer = renderHook(() => useAfterTasks());
+  const observer = renderHook(() => useAfterTasksStoreInternal());
   const store = observer.result.current;
   const subscribe = store.subscribeSnapshot;
   const releases: ReturnType<typeof vi.fn>[] = [];

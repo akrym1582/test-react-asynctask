@@ -23,6 +23,7 @@
  * 登録とstate反映:
  * - 同期処理・非同期処理とも登録でき、戻り値なしで直接setStateする形でも利用できる。
  * - 非同期処理は必ずawaitするかPromiseをreturnする。未登録のPromiseは自動検出しない。
+ * - useAfterTasks経由の登録は、Hookのunmount時に未完了タスクとそのHookの入力エラーを解除します。
  * - 直接呼ぶsetStateは取消・期限切れ・置き換え後も実行され得る。
  *   古い結果を反映させたくない場合は、処理から値を返して同期的なonCommitで反映する。
  * - key省略時はUUIDで各登録を独立管理する。同じ固定keyの再登録は先行処理を置き換える。
@@ -66,6 +67,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -227,6 +229,7 @@ export type AfterTasksParticipant = {
   /** Scope破棄時に入力等の所有状態と購読を片付けます。 */
   dispose: () => void;
 };
+type TaskScope = Set<InternalTask>;
 type InternalTask = {
   blocking: boolean;
   cancel: (status: "cancelled" | "superseded") => void;
@@ -254,7 +257,10 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   };
   const tasks = new Map<string | symbol, InternalTask>();
   let blockingCount = 0;
-  const failures = new Map<string | symbol, AfterTasksError>();
+  const failures = new Map<
+    string | symbol,
+    { error: AfterTasksError; scope?: TaskScope }
+  >();
   const participants = new Set<AfterTasksParticipant>();
   const listeners = new Set<() => void>();
   const snapshotListeners = new Set<() => void>();
@@ -295,7 +301,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   const assertSuccess = () => {
     if (failures.size)
       throw new AggregateError(
-        [...failures.values()],
+        Array.from(failures.values(), ({ error }) => error),
         "入力処理に失敗しました",
       );
   };
@@ -342,6 +348,13 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     factory: (context: { signal: AbortSignal }) => T | Promise<T>,
     options: AfterTasksOptions<T> = {},
   ): AfterTasksHandle<T> {
+    return registerTask(factory, options);
+  }
+  function registerTask<T>(
+    factory: (context: { signal: AbortSignal }) => T | Promise<T>,
+    options: AfterTasksOptions<T> = {},
+    scope?: TaskScope,
+  ): AfterTasksHandle<T> {
     if (disposed) throw new Error("AfterTasks scope is disposed");
     const timeout = duration(options.timeoutMs, defaults.taskTimeoutMs);
     // 通常は登録ごとにIDを作り、別の登録を置き換えず全件を待機します。
@@ -375,6 +388,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
         if (status !== "pending") return;
       }
       status = next;
+      scope?.delete(internal);
       clearTimeout(timer);
       if (tasks.get(key) === internal) tasks.delete(key);
       if (blocking) blockingCount--;
@@ -388,7 +402,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
           { taskKey: key, cause },
         );
         ownError = error;
-        if (blocking) failures.set(key, error);
+        if (blocking) failures.set(key, { error, scope });
       } else if (next === "fulfilled") failures.delete(key);
       if (next === "cancelled" || next === "superseded" || next === "timedOut")
         controller.abort();
@@ -400,7 +414,11 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       changed();
       if (error) report(config.onTaskError, error);
     };
-    const internal: InternalTask = { blocking, cancel: (next) => finish(next) };
+    const internal: InternalTask = {
+      blocking,
+      cancel: (next) => finish(next),
+    };
+    scope?.add(internal);
     tasks.set(key, internal);
     if (blocking) blockingCount++;
     // abortリスナーが同じkeyで再登録できるよう、今回の登録を先に管理対象にします。
@@ -425,7 +443,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       cancel: () => finish("cancelled"),
       clearError: () => {
         // 同じkeyで後から失敗した別登録のエラーは解除しません。
-        if (!ownError || failures.get(key) !== ownError) return;
+        if (!ownError || failures.get(key)?.error !== ownError) return;
         failures.delete(key);
         changed();
       },
@@ -502,6 +520,51 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   const store = {
     defaults,
     registerAsyncTask,
+    /** @internal Hookが登録したタスクだけをunmount時に破棄します。 */
+    createTaskScope() {
+      const scope: TaskScope = new Set();
+      let mounted = true;
+      let used = false;
+      return {
+        registerAsyncTask<T>(
+          factory: (context: { signal: AbortSignal }) => T | Promise<T>,
+          options?: AfterTasksOptions<T>,
+        ): AfterTasksHandle<T> {
+          if (!mounted) {
+            // 古いコールバックが後から呼ばれても同じkeyの新しい登録に触れません。
+            const controller = new AbortController();
+            controller.abort();
+            return {
+              result: Promise.resolve({ status: "cancelled" }),
+              signal: controller.signal,
+              getStatus: () => "cancelled",
+              cancel() {},
+              clearError() {},
+            };
+          }
+          used = true;
+          return registerTask(factory, options, scope);
+        },
+        attach() {
+          mounted = true;
+          return () => {
+            mounted = false;
+            if (!used) return;
+            used = false;
+            // 最後の取消で別フォームの待機が再開する前に、破棄する入力の失敗を解除します。
+            let cleared = false;
+            for (const [key, failure] of failures) {
+              if (failure.scope === scope) {
+                failures.delete(key);
+                cleared = true;
+              }
+            }
+            for (const task of scope) task.cancel("cancelled");
+            if (cleared) changed();
+          };
+        },
+      };
+    },
     wait,
     hasPending,
     assertSuccess,
@@ -686,8 +749,23 @@ export function useAfterTasks(
     action,
     options ?? registrationOptions,
   );
-  // 入力Hookの購読・mountを安定させるため、登録だけの利用では同じstoreを返します。
-  return action ? { ...store, ...execution } : store;
+  const scope = useMemo(() => store.createTaskScope(), [store]);
+  useLayoutEffect(() => scope.attach(), [scope]);
+  // 登録用APIの参照を安定させ、共有状態は呼び出し時点のstoreから読みます。
+  const registration = useMemo(
+    () => ({
+      ...store,
+      registerAsyncTask: scope.registerAsyncTask,
+      get isRunning() {
+        return store.isRunning;
+      },
+      get hasPendingTasks() {
+        return store.hasPendingTasks;
+      },
+    }),
+    [store, scope],
+  );
+  return action ? { ...registration, ...execution } : registration;
 }
 /** @internal 状態を購読せず、最も近いProvider、またはブラウザー共通のstoreを取得します。 */
 export function useAfterTasksStoreInternal(): AfterTasksStore {
