@@ -252,7 +252,7 @@ function makeFieldStore(store: AfterTasksStore) {
         const ownGeneration = generation;
         const current = getConfig();
         set({ phase: "pending" });
-        handle = store.registerAsyncTask(
+        const registered = store.registerAsyncTask(
           (context) => current.normalize(draft, context),
           {
             key,
@@ -266,7 +266,14 @@ function makeFieldStore(store: AfterTasksStore) {
             },
           },
         );
-        void handle.result.then((result) => {
+        // normalize中に画面が切り替わると、cleanupはまだこのハンドルを取得できません。
+        if (!alive || generation !== ownGeneration) {
+          registered.cancel();
+          registered.clearError();
+          return;
+        }
+        handle = registered;
+        void registered.result.then((result) => {
           if (!alive || generation !== ownGeneration) return;
           if (result.status === "fulfilled") set(cleanField);
           else if (

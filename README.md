@@ -7,7 +7,11 @@
 
 ブラウザーでは、Providerを置かずに入力欄で `useAfterTasks()`、保存ボタンで `useAfterTasks(action, options)` を呼べます。同じモジュールを使うコンポーネントはReactルートが別でも、登録タスク・エラー・保存の実行状態を共有します。共有storeは画面遷移や個々のコンポーネントのunmountをまたいで存続します。
 
-別フォームの入力を待ちたくない場合や同じ固定キーを別々に使いたい場合は、フォームごとに `AfterTasksProvider` で囲みます。Provider内の入力と保存ボタンは、そのProvider専用のstoreを使います。
+1つの保存対象を複数の部品やReactルートから編集し、入力確定と二重保存防止を共有したい場合はProviderを省略できます。フォームBの保存は、同じstoreでフォームAが登録した未完了タスク（既定はblocking）も待ちます。`blocking: false` の背景タスクは `hasPendingTasks` に含まれますが、保存を待たせません。保存の待機中・実行中は両方のフォームで `isRunning` がtrueになり、その間の別の保存要求は受け付けません。
+
+独立して保存するフォームは、**入力と保存ボタンを一組ずつ**別の `AfterTasksProvider` で囲んでください。同じstoreで同じ固定keyを直接登録すると前のタスクが取り消され、blockingタスクの失敗は別フォームの保存時にもその保存側の `onError` へ届きます。keyだけ分けても、待機とエラーは分離されません。
+
+画面遷移で入力を破棄したい場合、`useAfterTasksField` はunmount時に自分の入力タスクを取り消します。`registerAsyncTask` で共有storeに直接登録したタスクは登録元が消えても続くため、画面限りの処理はcleanupでハンドルの `cancel()` と `clearError()` を呼ぶか、その画面と一緒にunmountするProviderを使います。
 
 ## 必要なファイルだけコピーする
 
