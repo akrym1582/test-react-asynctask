@@ -367,3 +367,59 @@ it("別コンポーネントから入力状態とblur失敗を購読する", asy
     expect(screen.getByRole("status").textContent).toBe("error"),
   );
 });
+
+// 確認する状況: 入力欄とは別のコンポーネントでdirty表示を購読し、異なるイベントで3回編集します。
+// 期待する結果: dirty表示は最初の変更でだけ描画され、保存は最後の入力を確定した値で実行されます。
+it("dirty表示を再描画せず最後の編集を保存する", async () => {
+  const renders = vi.fn();
+  const normalize = vi.fn((value: string) => value.toUpperCase());
+  const save = vi.fn();
+  function Status() {
+    const { phase } = useAfterTasksFieldState("name");
+    renders(phase);
+    return <output>{phase}</output>;
+  }
+  function Editor() {
+    const [value, setValue] = useState("");
+    const field = useAfterTasksField({
+      taskKey: "name",
+      value,
+      normalize,
+      onCommit: setValue,
+    });
+    const { runAfterTasks } = useAfterTasks(() => save(value), {
+      onError: console.error,
+    });
+    return (
+      <>
+        <input
+          value={value}
+          onChange={(e) => {
+            field.change(e.target.value);
+            setValue(e.target.value);
+          }}
+          onBlur={field.commit}
+        />
+        <button onClick={runAfterTasks}>保存</button>
+      </>
+    );
+  }
+  render(
+    <AfterTasksProvider>
+      <Editor />
+      <Status />
+    </AfterTasksProvider>,
+  );
+  const type = (value: string) =>
+    fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+  type("a");
+  expect(screen.getByRole("status").textContent).toBe("dirty");
+  const count = renders.mock.calls.length;
+  type("ab");
+  type("abc");
+  expect(renders).toHaveBeenCalledTimes(count);
+  fireEvent.blur(screen.getByRole("textbox"));
+  fireEvent.click(screen.getByText("保存"));
+  await waitFor(() => expect(save).toHaveBeenCalledExactlyOnceWith("ABC"));
+  expect(normalize.mock.calls[0][0]).toBe("abc");
+});

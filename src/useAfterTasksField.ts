@@ -209,12 +209,18 @@ function makeFieldStore(store: AfterTasksStore) {
     let handle: AfterTasksHandle<string> | undefined;
     let snapshot: AfterTasksFieldSnapshot = cleanField;
     const set = (next: AfterTasksFieldSnapshot) => {
-      snapshot = next;
-      dirtyFields.delete(field);
-      pendingFields.delete(field);
-      if (next.phase === "dirty") dirtyFields.add(field);
-      if (next.phase === "pending") pendingFields.add(field);
-      notifyField(key);
+      const phase = snapshot.phase;
+      if (phase !== next.phase) {
+        if (phase === "dirty") dirtyFields.delete(field);
+        if (phase === "pending") pendingFields.delete(field);
+        if (next.phase === "dirty") dirtyFields.add(field);
+        if (next.phase === "pending") pendingFields.add(field);
+      }
+      if (phase !== next.phase || !Object.is(snapshot.error, next.error)) {
+        snapshot = next;
+        notifyField(key);
+      }
+      // dirtyのままでも入力値と世代は変わるので、保存の待機判定には通知します。
       store.notifyChange();
     };
     const reset = (input: string) => {

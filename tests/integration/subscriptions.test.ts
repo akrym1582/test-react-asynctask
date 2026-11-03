@@ -9,11 +9,17 @@ it("内部変更と共有snapshotの通知を分離する", () => {
   const shared = vi.fn();
   store.subscribe(internal);
   store.subscribeSnapshot(shared);
+  const idle = store.getSnapshot();
   const a = store.registerAsyncTask(() => new Promise(() => {}));
+  const pending = store.getSnapshot();
+  expect(pending).not.toBe(idle);
   const b = store.registerAsyncTask(() => new Promise(() => {}));
+  expect(store.getSnapshot()).toBe(pending);
   b.cancel();
+  expect(store.getSnapshot()).toBe(pending);
   expect(shared).toHaveBeenCalledTimes(1);
   expect(internal).toHaveBeenCalledTimes(3);
   a.cancel();
+  expect(store.getSnapshot()).toBe(idle);
   expect(shared).toHaveBeenCalledTimes(2);
 });

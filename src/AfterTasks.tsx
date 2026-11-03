@@ -269,25 +269,20 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     for (const listener of [...listeners]) listener();
   };
   const publishAction = () => {
-    const next = owner
-      ? {
-          isRunning: true,
-          hasPendingTasks: tasks.size > 0,
-          phase: owner.phase,
-          requestId: owner.id,
-        }
-      : tasks.size > 0
-        ? { ...idleAction, hasPendingTasks: true }
-        : idleAction;
-    // 公開状態が同じなら参照を維持し、購読Hookの再レンダーを抑えます。
-    // 内部待機と入力状態の購読には、公開状態が同じでも通知が必要です。
+    const isRunning = owner !== null;
+    const hasPendingTasks = tasks.size > 0;
+    const phase = owner?.phase ?? idleAction.phase;
+    const requestId = owner?.id ?? idleAction.requestId;
     if (
-      next.isRunning !== actionSnapshot.isRunning ||
-      next.hasPendingTasks !== actionSnapshot.hasPendingTasks ||
-      next.phase !== actionSnapshot.phase ||
-      next.requestId !== actionSnapshot.requestId
+      isRunning !== actionSnapshot.isRunning ||
+      hasPendingTasks !== actionSnapshot.hasPendingTasks ||
+      phase !== actionSnapshot.phase ||
+      requestId !== actionSnapshot.requestId
     ) {
-      actionSnapshot = next;
+      actionSnapshot =
+        isRunning || hasPendingTasks
+          ? { isRunning, hasPendingTasks, phase, requestId }
+          : idleAction;
       for (const listener of [...snapshotListeners]) listener();
     }
     notify();
@@ -352,7 +347,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     // 通常は登録ごとにIDを作り、別の登録を置き換えず全件を待機します。
     // requestId()はcrypto.randomUUIDを使い、非対応環境では時刻と連番で一意にします。
     const key = options.key ?? requestId();
-    tasks.get(key)?.cancel("superseded");
+    const previous = tasks.get(key);
     const controller = new AbortController();
     let status: AfterTasksStatus = "pending";
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -408,15 +403,20 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     const internal: InternalTask = { blocking, cancel: (next) => finish(next) };
     tasks.set(key, internal);
     if (blocking) blockingCount++;
+    // abortリスナーが同じkeyで再登録できるよう、今回の登録を先に管理対象にします。
+    previous?.cancel("superseded");
     changed();
-    if (timeout !== null) timer = setTimeout(() => finish("timedOut"), timeout);
-    try {
-      Promise.resolve(factory({ signal: controller.signal })).then(
-        (value) => finish("fulfilled", value),
-        (error) => finish("rejected", undefined, error),
-      );
-    } catch (error) {
-      finish("rejected", undefined, error);
+    if (status === "pending") {
+      if (timeout !== null)
+        timer = setTimeout(() => finish("timedOut"), timeout);
+      try {
+        Promise.resolve(factory({ signal: controller.signal })).then(
+          (value) => finish("fulfilled", value),
+          (error) => finish("rejected", undefined, error),
+        );
+      } catch (error) {
+        finish("rejected", undefined, error);
+      }
     }
     return {
       result,

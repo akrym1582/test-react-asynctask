@@ -1002,3 +1002,37 @@ it("Providerなしでblurタスクを共有し、Provider内のタスクとは�
     other.resolve();
   });
 });
+
+// 確認する状況: AをBで置き換える途中で、Aのabortリスナーが同じキーのCを登録します。
+// 期待する結果: Bは開始せず、保存はCだけを待ち、Aが遅れて終了してもCの値だけが反映されます。
+it("中断通知中に再登録された最後のタスクだけを待つ", async () => {
+  const store = createAfterTasksStore();
+  const first = deferred<string>();
+  const last = deferred<string>();
+  const commit = vi.fn();
+  const middle = vi.fn(() => "B");
+  const options = { key: "field", onCommit: commit };
+  const a = store.registerAsyncTask(({ signal }) => {
+    signal.addEventListener("abort", () => {
+      store.registerAsyncTask(() => last.promise, options);
+    });
+    return first.promise;
+  }, options);
+  const b = store.registerAsyncTask(middle, options);
+  expect((await a.result).status).toBe("superseded");
+  expect((await b.result).status).toBe("superseded");
+  expect(middle).not.toHaveBeenCalled();
+  expect(store.hasPendingTasks).toBe(true);
+  expect(store.hasPending()).toBe(true);
+  const saved = vi.fn();
+  const waiting = store.wait().then(saved);
+  await flush();
+  expect(saved).not.toHaveBeenCalled();
+  last.resolve("C");
+  await waiting;
+  first.resolve("A");
+  await flush();
+  expect(commit).toHaveBeenCalledExactlyOnceWith("C");
+  expect(store.hasPending()).toBe(false);
+  expect(store.hasPendingTasks).toBe(false);
+});
