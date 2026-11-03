@@ -38,3 +38,16 @@ it("SSRではDOM参照エラーやEffect警告を出さず保存処理も開始�
   expect(log).not.toHaveBeenCalled();
   log.mockRestore();
 });
+
+// 確認する状況: Providerなしの画面を、同じサーバープロセスで2回レンダリングします。
+// 期待する結果: 各レンダーで異なるstoreが使われ、別リクエストに状態が引き継がれません。
+it("ProviderなしのSSRでリクエスト間のstoreを分離する", () => {
+  const observe = vi.fn();
+  function Form() {
+    observe(useAfterTasks());
+    return <span>入力フォーム</span>;
+  }
+  renderToString(<Form />);
+  renderToString(<Form />);
+  expect(observe.mock.calls[0][0]).not.toBe(observe.mock.calls[1][0]);
+});

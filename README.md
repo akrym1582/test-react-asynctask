@@ -3,6 +3,12 @@
 非同期blurで入力を確定してから、最新のレンダーのstateで保存するための共通処理です。
 **中心の`src/AfterTasks.tsx`だけで、Context・タスク登録・完了待機・保存を利用できます。** 入力HookやUI、form送信の補助は任意ファイルです。React以外の実行時依存はありません。
 
+## Providerを省略して使う
+
+ブラウザーでは、Providerを置かずに入力欄で `useAfterTasks()`、保存ボタンで `useAfterTasks(action, options)` を呼べます。同じモジュールを使うコンポーネントはReactルートが別でも、登録タスク・エラー・保存の実行状態を共有します。共有storeは画面遷移や個々のコンポーネントのunmountをまたいで存続します。
+
+別フォームの入力を待ちたくない場合や同じ固定キーを別々に使いたい場合は、フォームごとに `AfterTasksProvider` で囲みます。Provider内の入力と保存ボタンは、そのProvider専用のstoreを使います。SSRではリクエスト間でstoreを共有しません。サーバーレンダリング中にも複数のHookで共有したい場合はProviderを使います。
+
 ## 必要なファイルだけコピーする
 
 | 利用する機能                                           | コピーするファイル                                       |

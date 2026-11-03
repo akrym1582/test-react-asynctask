@@ -4,11 +4,12 @@
  * React以外の実行時依存はありません。
  *
  * 中心ファイルだけで使う基本の流れ:
- * 1. 連携する入力欄と保存ボタンを、同じAfterTasksProviderの配下に配置する。
+ * 1. ブラウザーではProviderを省略すると、入力欄と保存ボタンが共通のstoreを使う。
+ *    フォームごとに独立させたい場合は、それぞれをAfterTasksProviderで囲む。
  * 2. useAfterTasksでregisterAsyncTaskを取得し、onBlurなどで処理を登録する。
  * 3. useAfterTasks(action, { onError })から取得したrunAfterTasksを、保存ボタンのonClickなどへ渡す。
  * 4. runAfterTasksが登録タスクの完了を待ち、再レンダー後のactionを呼ぶ。
- *    同じProvider配下の子孫が登録したタスクと、待機途中に追加されたタスクも対象となる。
+ *    同じstoreを使うコンポーネントが待機途中に追加したタスクも対象となる。
  *    blocking:falseの背景処理は保存の待機対象に含めない。
  *
  * 同期blurと登録の使い分け:
@@ -622,7 +623,11 @@ export type AfterTasksExecution = AfterTasksSnapshot & {
    */
   runAfterTasks: () => void;
 };
-const AfterTasksStoreContext = createContext<AfterTasksStore | null>(null);
+// Providerがないブラウザー画面では、このモジュールを使うすべてのHookが同じstoreを参照します。
+// SSRではモジュールが複数リクエストで再利用されるので、共有storeを作りません。
+const AfterTasksStoreContext = createContext<AfterTasksStore | null>(
+  typeof window === "undefined" ? null : createAfterTasksStore(),
+);
 /**
  * フォームごとに置く管理範囲です。この範囲内の入力を待ち、保存操作を1つに制限します。
  * configはScope作成時に固定します。変更にはProviderをkeyで再作成してください。
@@ -679,8 +684,7 @@ export function useAfterTasks(
   action?: (context: AfterTasksContext) => void | Promise<void>,
   options?: AfterTasksRunOptions,
 ) {
-  const store = useContext(AfterTasksStoreContext);
-  if (!store) throw new Error("AfterTasksProviderが必要です");
+  const store = useAfterTasksStoreInternal();
   // 引数の有無でHookを条件呼び出ししません。登録だけの利用でも同じ順序で呼びます。
   const execution = useAfterTasksExecution(
     store,
@@ -690,11 +694,11 @@ export function useAfterTasks(
   // 入力Hookの購読・mountを安定させるため、登録だけの利用では同じstoreを返します。
   return action ? { ...store, ...execution } : store;
 }
-/** @internal 任意の入力Hook用。状態を購読せず、Providerのstoreを取得します。 */
+/** @internal 状態を購読せず、最も近いProvider、またはブラウザー共通のstoreを取得します。 */
 export function useAfterTasksStoreInternal(): AfterTasksStore {
   const store = useContext(AfterTasksStoreContext);
-  if (!store) throw new Error("AfterTasksProviderが必要です");
-  return store;
+  // ProviderなしのSSRは表示用。サーバーで共有が必要な場合はProviderで範囲を指定します。
+  return store ?? createAfterTasksStore();
 }
 const registrationOptions: AfterTasksRunOptions = { onError: console.error };
 // coreのエラー通知・準備オプションを、破棄されたレンダーから読まないための内部getterです。

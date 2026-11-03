@@ -943,3 +943,62 @@ it("古いハンドルで新しい登録のエラーを解除しない", async (
   b.clearError();
   await expect(store.wait()).resolves.toBeUndefined();
 });
+
+// 確認する状況: Provider外の入力と保存ボタンが別コンポーネントにあり、
+// 別フォームのProvider内にも未完了の入力タスクが残っています。
+// 期待する結果: 保存は外側の入力を待ち、その更新後の値を使います。別フォームの完了は待ちません。
+it("Providerなしでblurタスクを共有し、Provider内のタスクとは分離する", async () => {
+  const input = deferred<string>();
+  const other = deferred<void>();
+  const save = vi.fn();
+  function Input({ commit }: { commit: (value: string) => void }) {
+    const { registerAsyncTask } = useAfterTasks();
+    return (
+      <input
+        aria-label="入力"
+        onBlur={() =>
+          registerAsyncTask(() => input.promise, { onCommit: commit })
+        }
+      />
+    );
+  }
+  function Save({ value }: { value: string }) {
+    const { runAfterTasks } = useAfterTasks(() => save(value), {
+      onError: console.error,
+    });
+    return <button onClick={runAfterTasks}>保存</button>;
+  }
+  function Other() {
+    const { registerAsyncTask } = useAfterTasks();
+    return (
+      <button onClick={() => registerAsyncTask(() => other.promise)}>
+        別フォーム
+      </button>
+    );
+  }
+  function Form() {
+    const [value, setValue] = useState("変更前");
+    return (
+      <>
+        <Input commit={setValue} />
+        <Save value={value} />
+        <AfterTasksProvider>
+          <Other />
+        </AfterTasksProvider>
+      </>
+    );
+  }
+  render(<Form />);
+  fireEvent.click(screen.getByText("別フォーム"));
+  fireEvent.blur(screen.getByLabelText("入力"));
+  fireEvent.click(screen.getByText("保存"));
+  await flush();
+  expect(save).not.toHaveBeenCalled();
+  await act(async () => {
+    input.resolve("変更後");
+  });
+  await waitFor(() => expect(save).toHaveBeenCalledWith("変更後"));
+  await act(async () => {
+    other.resolve();
+  });
+});
