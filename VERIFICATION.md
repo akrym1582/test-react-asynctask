@@ -1,5 +1,9 @@
 # 検証結果
 
+## Providerなしの共有store（2026-11-03）
+
+React 19.3.1とJSDOMで、異なるReactルート間のblocking待機・背景処理・保存ロック、固定keyの置換、画面をまたぐ失敗通知と再試行、Providerごとの分離、再マウント時の購読解除を検証しました。`normalize` の呼び出し中に入力をunmountするケースでは、修正前はタスクが中断されず、修正後は次画面の保存が完了しました。Vitestは新規5件を含む73件が成功しました。画面遷移はReactルートのunmount・再マウントで再現しており、新規5件の実ブラウザーでの再現は未検証です。
+
 ## 現在の責務
 
 共通部品は登録タスクの待機、state反映後のaction実行、エラー通知、実行状態の管理を担当します。保存結果の分類・照会・再送判断はAPI呼び出し側へ任せます。reconcile・isResultUnknown・UncertainActionError・結果照会用UIは削除しました。
