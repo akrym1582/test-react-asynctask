@@ -9,6 +9,7 @@ import {
 } from "./AfterTasks";
 
 type Values = { name: string; address: string };
+
 type Props = {
   normalizeName: (
     value: string,
@@ -44,6 +45,7 @@ function FieldError({ taskKey }: { taskKey: string }) {
 function Fields({ normalizeName, normalizeAddress, save }: Props) {
   const [values, setValues] = useState<Values>({ name: "", address: "" });
   const [error, setError] = useState<string | null>(null);
+
   const { runAfterTasks, isRunning } = useAfterTasks(
     // valuesはactionを開始するレンダーでのsnapshotです。
     // signalとrequestIdを通信層まで渡すと、中断・ログ記録に利用できます。
@@ -58,6 +60,7 @@ function Fields({ normalizeName, normalizeAddress, save }: Props) {
         setError(error instanceof Error ? error.message : "処理に失敗しました"),
     },
   );
+
   // normalizeとstate反映をHookへ渡します。DOMには通常のinputを使います。
   const nameField = useAfterTasksField({
     taskKey: "name",
@@ -65,12 +68,15 @@ function Fields({ normalizeName, normalizeAddress, save }: Props) {
     normalize: normalizeName,
     onCommit: (name) => setValues((previous) => ({ ...previous, name })),
   });
+
   const addressField = useAfterTasksField({
     taskKey: "address",
     value: values.address,
     normalize: normalizeAddress,
     onCommit: (address) => setValues((previous) => ({ ...previous, address })),
   });
+
+  // ボタンで送信した場合も、Enterで送信した場合も、同じrunAfterTasksから保存を始めます。
   const submitEvents = useAfterTasksSubmit(runAfterTasks);
   return (
     <form {...submitEvents}>

@@ -16,8 +16,10 @@ import { useCallback, useLayoutEffect, useRef } from "react";
  */
 export function useLatestCommitted<T>(value: T): () => T {
   const ref = useRef(value);
+
   useLayoutEffect(() => {
     ref.current = value;
   });
+
   return useCallback(() => ref.current, []);
 }

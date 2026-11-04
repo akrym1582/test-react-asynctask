@@ -13,6 +13,7 @@ export function LatestStateExample({
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const getValue = useLatestCommitted(value);
+
   const { runAfterTasks, isRunning } = useAfterTasks(
     async () => {
       await check();
@@ -22,6 +23,7 @@ export function LatestStateExample({
     },
     { onError: (error) => setError(String(error)) },
   );
+
   return (
     <>
       <input

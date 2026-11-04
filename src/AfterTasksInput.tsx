@@ -42,6 +42,7 @@ export const AfterTasksInput = forwardRef<
     onChange,
     ...input
   } = props;
+
   const field = useAfterTasksField({
     taskKey,
     value: input.value,
@@ -55,6 +56,7 @@ export const AfterTasksInput = forwardRef<
       {...input}
       ref={ref}
       onChange={(event) => {
+        // ここで編集を記録し、blurで整形を始めます。親には通常のonChangeも届けます。
         field.change(event.currentTarget.value);
         onChange?.(event);
       }}

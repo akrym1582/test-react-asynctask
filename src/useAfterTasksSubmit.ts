@@ -19,15 +19,19 @@ export function useAfterTasksSubmit(runAfterTasks: () => void) {
     suppressEnter: false,
     explicit: false,
   });
+
   return {
     onCompositionStart: () => {
       ime.current.composing = true;
       ime.current.ended = false;
     },
+
+    // 日本語入力の変換確定に使ったEnterを、直後のフォーム送信と区別するために記録します。
     onCompositionEnd: () => {
       ime.current.composing = false;
       ime.current.ended = true;
     },
+
     onKeyDown: (event: KeyboardEvent<HTMLFormElement>) => {
       const state = ime.current;
       if (event.key === "Enter") {
@@ -48,17 +52,20 @@ export function useAfterTasksSubmit(runAfterTasks: () => void) {
         state.ended = false;
       }
     },
+
     onKeyUp: (event: KeyboardEvent<HTMLFormElement>) => {
       if (event.key === "Enter" || event.keyCode === 229) {
         ime.current.suppressEnter = false;
         ime.current.ended = false;
       }
     },
+
     onPointerDown: () => {
       ime.current.explicit = true;
       ime.current.suppressEnter = false;
       ime.current.ended = false;
     },
+
     onSubmit: (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const state = ime.current;

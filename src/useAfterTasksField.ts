@@ -64,6 +64,7 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
     (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
   )
     throw new RangeError("期限には正の有限値かnullを指定してください");
+
   const field = useRef<Field | null>(null);
   const getOptions = useLatestCommitted(options);
   useLayoutEffect(() => {
@@ -78,9 +79,11 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
       if (field.current === mounted) field.current = null;
     };
   }, [fields, taskKey, getOptions]);
+
   useLayoutEffect(() => {
     field.current?.sync(value);
   }, [value]);
+
   const previousReset = useRef(resetKey);
   useLayoutEffect(() => {
     if (!Object.is(previousReset.current, resetKey)) {
@@ -88,6 +91,7 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
       field.current?.reset(value);
     }
   }, [resetKey, value]);
+
   // 既に取得したstoreを使い、useAfterTasksを重複して購読しません。
   const snapshot = useSyncExternalStore(
     useCallback(
@@ -96,10 +100,12 @@ export function useAfterTasksField(options: AfterTasksFieldOptions) {
     ),
     () => fields.getFieldSnapshot(taskKey),
   );
+
   const change = useCallback(
     (input: string) => field.current?.change(input),
     [],
   );
+
   const commit = useCallback(() => field.current?.commit(true), []);
   const reset = useCallback((input: string) => field.current?.reset(input), []);
   return { change, commit, reset, ...snapshot };
@@ -130,6 +136,7 @@ export type AfterTasksFieldSnapshot = Readonly<{
   phase: "clean" | "dirty" | "pending" | "error" | "disposed";
   error?: unknown;
 }>;
+
 const cleanField: AfterTasksFieldSnapshot = Object.freeze({
   phase: "clean",
 });
@@ -142,6 +149,7 @@ type FieldConfig = {
   onCommit: (value: string) => void;
   timeoutMs?: AfterTasksTimeout;
 };
+
 type Field = {
   change: (value: string) => void;
   reset: (value: string) => void;
@@ -152,7 +160,9 @@ type Field = {
 };
 
 type FieldStore = ReturnType<typeof makeFieldStore>;
+
 const stores = new WeakMap<AfterTasksStore, FieldStore>();
+
 /**
  * @internal 同じProvider内の入力Hookが共有する、任意の入力管理本体です。
  * storeの作成だけではcoreを変更しません。mountFieldはcommit後のEffectから呼びます。
@@ -165,21 +175,26 @@ export function createAfterTasksFieldStore(store: AfterTasksStore): FieldStore {
   }
   return manager;
 }
+
 function synchronousCommit(result: unknown) {
   if (result && typeof (result as PromiseLike<unknown>).then === "function") {
     void Promise.resolve(result).catch(() => {});
     throw new TypeError("onCommitは同期関数で指定してください");
   }
 }
+
 function makeFieldStore(store: AfterTasksStore) {
   const fields = new Map<string, Field>();
   const listeners = new Map<string, Set<() => void>>();
   const notifyField = (key: string) => {
     for (const listener of [...(listeners.get(key) ?? [])]) listener();
   };
+
+  // dirtyは「編集済みでまだ確定していない入力」、pendingは「確定処理の結果を待っている入力」です。
   const dirtyFields = new Set<Field>();
   const pendingFields = new Set<Field>();
   let detach: (() => void) | undefined;
+
   const participant = {
     prepare: () => {
       for (const field of [...dirtyFields]) field.commit();
@@ -193,6 +208,7 @@ function makeFieldStore(store: AfterTasksStore) {
       for (const field of [...fields.values()]) field.dispose();
     },
   };
+
   /**
    * 入力1個の寿命と世代を管理します。fieldインスタンスが所有者tokenの役割も持ちます。
    * 同じkeyで新しい入力がmountされても、古いcleanupは新しい入力を削除できません。
@@ -203,11 +219,13 @@ function makeFieldStore(store: AfterTasksStore) {
     getConfig: () => FieldConfig,
   ): Field {
     if (fields.has(key)) throw new Error(`taskKeyが重複しています: ${key}`);
+    // draftは入力欄にある編集中の文字列です。保存に使う値は、整形が成功したときにonCommitで親へ渡します。
     let draft = value;
     let generation = 0;
     let alive = true;
     let handle: AfterTasksHandle<string> | undefined;
     let snapshot: AfterTasksFieldSnapshot = cleanField;
+
     const set = (next: AfterTasksFieldSnapshot) => {
       const phase = snapshot.phase;
       if (phase !== next.phase) {
@@ -220,9 +238,11 @@ function makeFieldStore(store: AfterTasksStore) {
         snapshot = next;
         notifyField(key);
       }
+
       // dirtyのままでも入力値と世代は変わるので、保存の待機判定には通知します。
       store.notifyChange();
     };
+
     const reset = (input: string) => {
       // blur時では遅いため、編集した瞬間に世代を変えます。
       // これにより「Bを入力中なのにAの検索結果が戻って上書きする」ことを防ぎます。
@@ -233,6 +253,7 @@ function makeFieldStore(store: AfterTasksStore) {
       store.clearTaskError(key);
       set({ phase: "dirty" });
     };
+
     const field: Field = {
       snapshot: () => snapshot,
       change: reset,
@@ -240,6 +261,7 @@ function makeFieldStore(store: AfterTasksStore) {
       sync(input) {
         if (input !== draft) reset(input);
       },
+
       commit(retry = false) {
         if (
           !alive ||
@@ -266,6 +288,7 @@ function makeFieldStore(store: AfterTasksStore) {
             },
           },
         );
+
         // normalize中に画面が切り替わると、cleanupはまだこのハンドルを取得できません。
         if (!alive || generation !== ownGeneration) {
           registered.cancel();
@@ -284,6 +307,7 @@ function makeFieldStore(store: AfterTasksStore) {
           else set({ phase: "error", error: result.error });
         });
       },
+
       dispose() {
         if (!alive) return;
         alive = false;
@@ -301,6 +325,7 @@ function makeFieldStore(store: AfterTasksStore) {
         set({ phase: "disposed" });
       },
     };
+
     fields.set(key, field);
     if (!detach) detach = store.registerParticipant(participant);
     else store.notifyChange();

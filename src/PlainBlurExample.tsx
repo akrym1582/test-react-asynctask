@@ -23,6 +23,7 @@ export function PlainBlurExample({
     </AfterTasksProvider>
   );
 }
+
 function Fields({
   normalize,
   save,
@@ -35,6 +36,7 @@ function Fields({
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
+
   const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(
     async () => {
       await save(value);
@@ -47,6 +49,7 @@ function Fields({
       onError: (error) => setError(String(error)),
     },
   );
+
   return (
     <>
       <input
@@ -56,6 +59,7 @@ function Fields({
         onBlur={(event) => {
           // SyntheticEventの値はawaitの前に読み取ります。
           const input = event.currentTarget.value;
+          // blurの中で先に登録すると、直後に保存を押しても、保存側がこの整形の完了を待てます。
           registerAsyncTask(({ signal }) => normalize(input, { signal }), {
             // このタスクが取消・期限切れになった場合は、このsetterを呼びません。
             onCommit: setValue,
