@@ -898,7 +898,6 @@ function useAfterTasksExecution(
   action: ((context: AfterTasksContext) => void | Promise<void>) | undefined,
   options: AfterTasksRunOptions,
 ): AfterTasksExecution {
-
   const snapshot = useSyncExternalStore(
     store.subscribeSnapshot,
     store.getSnapshot,
