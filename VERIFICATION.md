@@ -2,7 +2,7 @@
 
 ## 優先度付き直列実行
 
-キューの実行部分をJavaScriptで検証し、同じ優先度の登録順、実行中に追加した高優先度タスクの待機、失敗後の続行を確認しました。React上の兄弟Effectの順序と待機中の取消の検証は `tests/usePriorityTasks.test.tsx` にあります。
+`tests/integration/priorityTasks.test.tsx` は、兄弟Effectの優先度順、同点の登録順、実行中の追加、待機中の取消、失敗後の続行を検証します。保存を待機中に要求し、最後のタスクまで反映したstateで保存が1回実行されることも確認します。
 
 ## Hookからの直接登録とunmount
 

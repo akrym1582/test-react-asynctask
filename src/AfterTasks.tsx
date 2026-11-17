@@ -133,6 +133,8 @@ export type AfterTasksHandle<T> = {
 
 /** blocking=falseは保存に無関係な背景処理用。送信データを変更する処理には使わないでください。 */
 export type AfterTasksOptions<T = unknown> = {
+  /** 指定するとストア内で優先度が高い順に直列実行。同点は登録順、省略時は即時開始です。 */
+  priority?: number;
   /**
    * 省略時は自動生成UUIDで独立登録します。keyなしのタスクはすべて待機対象となります。
    * 同じ入力の古い結果を置き換えたい場合だけ、固定の文字列またはsymbolを指定します。
@@ -275,6 +277,31 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   const tasks = new Map<string | symbol, InternalTask>();
   let blockingCount = 0;
 
+  // Mapは登録順に走査するため、同じ優先度の仕事は先着順になります。
+  const queue = new Map<
+    InternalTask,
+    { priority: number; run: () => Promise<void> }
+  >();
+  let draining = false;
+  async function drainQueue() {
+    while (queue.size > 0) {
+      let highest = -Infinity;
+      let selected: InternalTask | undefined;
+      for (const [task, job] of queue) {
+        if (job.priority > highest) {
+          highest = job.priority;
+          selected = task;
+        }
+      }
+      if (!selected) break;
+      const job = queue.get(selected)!;
+      queue.delete(selected);
+      // 取消済みでも、実行を始めたfactory自体が終了するまで次を開始しません。
+      await job.run();
+    }
+    draining = false;
+  }
+
   // 保存に必要な入力の失敗は、タスクが終わっても記録しておきます。次の保存がそのエラーを見落とさないためです。
   const failures = new Map<
     string | symbol,
@@ -383,6 +410,9 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     scope?: TaskScope,
   ): AfterTasksHandle<T> {
     if (disposed) throw new Error("AfterTasks scope is disposed");
+    const { priority } = options;
+    if (priority !== undefined && !Number.isFinite(priority))
+      throw new RangeError("優先度には有限の数値を指定してください");
     const timeout = duration(options.timeoutMs, defaults.taskTimeoutMs);
     // 通常は登録ごとにIDを作り、別の登録を置き換えず全件を待機します。
     // requestId()はcrypto.randomUUIDを使い、非対応環境では時刻と連番で一意にします。
@@ -418,6 +448,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
         if (status !== "pending") return;
       }
       status = next;
+      queue.delete(internal);
       scope?.delete(internal);
       clearTimeout(timer);
       if (tasks.get(key) === internal) tasks.delete(key);
@@ -452,20 +483,29 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     scope?.add(internal);
     tasks.set(key, internal);
     if (blocking) blockingCount++;
+    async function run() {
+      try {
+        const value = await factory({ signal: controller.signal });
+        finish("fulfilled", value);
+      } catch (error) {
+        finish("rejected", undefined, error);
+      }
+    }
+    if (priority !== undefined) {
+      queue.set(internal, { priority, run });
+      if (!draining) {
+        draining = true;
+        // 同期的に続くEffectの登録も受け取ってから、最初の1件を選びます。
+        queueMicrotask(drainQueue);
+      }
+    }
     // abortリスナーが同じkeyで再登録できるよう、今回の登録を先に管理対象にします。
     previous?.cancel("superseded");
     changed();
     if (status === "pending") {
       if (timeout !== null)
         timer = setTimeout(() => finish("timedOut"), timeout);
-      try {
-        Promise.resolve(factory({ signal: controller.signal })).then(
-          (value) => finish("fulfilled", value),
-          (error) => finish("rejected", undefined, error),
-        );
-      } catch (error) {
-        finish("rejected", undefined, error);
-      }
+      if (priority === undefined) void run();
     }
 
     return {

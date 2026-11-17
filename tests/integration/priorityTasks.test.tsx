@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
-import { useEffect } from "react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { afterEach, expect, it } from "vitest";
-import { AfterTasksProvider } from "../src/AfterTasks";
-import { usePriorityTasks } from "../src/usePriorityTasks";
-import { deferred, flush } from "./helpers";
+import { AfterTasksProvider, useAfterTasks } from "../../src/AfterTasks";
+import { deferred, flush } from "../helpers";
 
 afterEach(cleanup);
 
@@ -15,11 +20,11 @@ function Worker({
   priority: number;
   work: () => Promise<void> | void;
 }) {
-  const register = usePriorityTasks();
+  const { registerAsyncTask } = useAfterTasks();
   useEffect(() => {
-    const task = register(work, { priority });
+    const task = registerAsyncTask(work, { priority });
     return task.cancel;
-  }, [priority, register, work]);
+  }, [priority, registerAsyncTask, work]);
   return null;
 }
 
@@ -78,4 +83,56 @@ it("追加・取消・失敗の後も待機中の優先度を尊重する", asyn
   gate.reject(new Error("失敗"));
   await flush();
   expect(order).toEqual(["active", "high", "low"]);
+});
+
+// 低優先度を先に登録して保存を要求します。最後の登録タスクのstate反映後に1回だけ保存します。
+it("優先度順に確定した最新のstateで最後に保存する", async () => {
+  const gate = deferred<void>();
+  const order: string[] = [];
+  function Form() {
+    const [value, setValue] = useState("");
+    const { registerAsyncTask, runAfterTasks } = useAfterTasks(
+      () => {
+        order.push("save:" + value);
+      },
+      { onError: () => order.push("error") },
+    );
+    useEffect(() => {
+      const low = registerAsyncTask(() => "low", {
+        priority: 1,
+        onCommit: (name) => {
+          order.push(name);
+          setValue((prev) => prev + name);
+        },
+      });
+      const high = registerAsyncTask(
+        async () => {
+          await gate.promise;
+          return "high";
+        },
+        {
+          priority: 10,
+          onCommit: (name) => {
+            order.push(name);
+            setValue((prev) => prev + name);
+          },
+        },
+      );
+      return () => {
+        low.cancel();
+        high.cancel();
+      };
+    }, [registerAsyncTask]);
+    return <button onClick={runAfterTasks}>保存</button>;
+  }
+  render(
+    <AfterTasksProvider>
+      <Form />
+    </AfterTasksProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await flush();
+  expect(order).toEqual([]);
+  gate.resolve();
+  await waitFor(() => expect(order).toEqual(["high", "low", "save:highlow"]));
 });

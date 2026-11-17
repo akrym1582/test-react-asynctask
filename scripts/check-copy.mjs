@@ -6,17 +6,6 @@ import { spawnSync } from "node:child_process";
 
 const variants = [
   {
-    name: "priority",
-    files: ["AfterTasks.tsx", "usePriorityTasks.ts"],
-    usage: `
-import { usePriorityTasks } from "./usePriorityTasks";
-function Example() {
-  const register = usePriorityTasks();
-  return () => register(() => 1, { priority: 10, onCommit: n => { n.toFixed(); } });
-}
-`,
-  },
-  {
     name: "core",
     files: ["AfterTasks.tsx"],
     usage: `
@@ -50,7 +39,7 @@ function Example() {
   // @ts-expect-error 任意の入力管理本体を中心ファイルに戻さない
   tasks.mountField("name", "", () => ({}));
   tasks.registerAsyncTask(async () => "ok", {
-    timeoutMs: null, onCommit: value => { const text: string = value; },
+    priority: 10, timeoutMs: null, onCommit: value => { const text: string = value; },
   });
   tasks.registerAsyncTask(async () => "ok");
   tasks.registerAsyncTask(async () => "ok", { key: "name" });
