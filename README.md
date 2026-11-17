@@ -17,8 +17,8 @@
 
 | 利用する機能                                           | コピーするファイル                                       |
 | ------------------------------------------------------ | -------------------------------------------------------- |
-| Effect間の優先度付き直列実行 | AfterTasks.tsx + usePriorityTasks.ts |
 | タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                     |
+| Effect間の優先度付き直列実行                           | `AfterTasks.tsx` + `usePriorityTasks.ts`                 |
 | 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAfterTasksField.ts` |
 | 入力UIも共通化する                                     | 入力Hookの3ファイル + `AfterTasksInput.tsx`              |
 | 最新commit済み値のgetterだけを利用する                 | `useLatestCommitted.ts`だけ（Provider不要）              |
