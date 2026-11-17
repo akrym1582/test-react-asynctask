@@ -6,6 +6,17 @@ import { spawnSync } from "node:child_process";
 
 const variants = [
   {
+    name: "priority",
+    files: ["AfterTasks.tsx", "usePriorityTasks.ts"],
+    usage: `
+import { usePriorityTasks } from "./usePriorityTasks";
+function Example() {
+  const register = usePriorityTasks();
+  return () => register(() => 1, { priority: 10, onCommit: n => { n.toFixed(); } });
+}
+`,
+  },
+  {
     name: "core",
     files: ["AfterTasks.tsx"],
     usage: `

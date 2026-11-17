@@ -17,6 +17,7 @@
 
 | 利用する機能                                           | コピーするファイル                                       |
 | ------------------------------------------------------ | -------------------------------------------------------- |
+| Effect間の優先度付き直列実行 | AfterTasks.tsx + usePriorityTasks.ts |
 | タスク登録・待機後のイベント実行                       | `AfterTasks.tsx`だけ                                     |
 | 入力の自動確定・再編集時の古い結果の破棄・項目状態表示 | 上記 + `useLatestCommitted.ts` + `useAfterTasksField.ts` |
 | 入力UIも共通化する                                     | 入力Hookの3ファイル + `AfterTasksInput.tsx`              |
@@ -79,6 +80,24 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async cont
 ```
 
 非同期関数は結果を返し、state更新は`onCommit`へ分けます。key省略時は登録ごとにUUIDを自動生成し、すべての処理を独立して待ちます。必要な場合だけoptions.keyで固定keyを指定でき、同じkeyの再登録時には古い結果を破棄します。次のblurより前の再編集でも古い結果を破棄したい場合は、次の入力Hookを追加します。
+
+## 複数のEffectを優先度順に実行する
+
+`AfterTasks.tsx` と `usePriorityTasks.ts` をコピーします。同じストアのコンポーネントはキューを共有します。次のマイクロタスクで最初の仕事を選び、以後は実行中の仕事が終了するたびに、待機中で最大の優先度を選びます。同点は登録順、優先度の省略時は0です。
+
+```tsx
+const register = usePriorityTasks();
+
+useEffect(() => {
+  const task = register(({ signal }) => loadProfile(userId, { signal }), {
+    priority: 10,
+    onCommit: setProfile,
+  });
+  return task.cancel;
+}, [register, userId]);
+```
+
+別の部品も同じHookで登録できます。順番待ちも保存の待機対象になり、個別の期限は登録時から数えます。待機中の取消はキューから除外します。開始後の取消はsignalで通知し、元の処理が終了してから次へ進みます。通常の `registerAsyncTask` は従来どおり独立して実行します。
 
 ## 任意の入力Hookを使う
 

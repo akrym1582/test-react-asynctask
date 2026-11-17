@@ -1,5 +1,9 @@
 # 検証結果
 
+## 優先度付き直列実行
+
+キューの実行部分をJavaScriptで検証し、同じ優先度の登録順、実行中に追加した高優先度タスクの待機、失敗後の続行を確認しました。React上の兄弟Effectの順序と待機中の取消の検証は `tests/usePriorityTasks.test.tsx` にあります。
+
 ## Hookからの直接登録とunmount
 
 `tests/integration/globalStore.test.tsx` で、登録元を閉じると別ルートの保存が再開し、残ったフォームの背景処理は続くことを確認します。同じkeyの別登録のエラー、登録処理中のunmount、古いコールバック、同じProvider内の兄弟とStrictModeでの再接続も対象です。画面切替はJSDOM上のmount・unmountで再現しています。
