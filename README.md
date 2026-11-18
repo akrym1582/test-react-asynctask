@@ -90,6 +90,24 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async cont
 
 `runAfterTasks({ enqueue: false })` は、同じストアが保存を処理中なら今回の要求をスキップします。
 
+### 保存処理に引数を渡す
+
+保存関数の第1引数は `signal` と `requestId` を含むコンテキストです。第2引数以降は `runAfterTasks({ args: [...] })` で渡します。各要求は呼び出し時の引数を保持し、実行時には最新のレンダーの state を読みます。
+
+```tsx
+const { runAfterTasks } = useAfterTasks(
+  ({ signal }, itemId: string, mode: "draft" | "publish") =>
+    save(itemId, mode, formState, { signal }),
+  { onError },
+);
+
+return (
+  <button onClick={() => runAfterTasks({ args: [itemId, "draft"] })}>
+    下書きを保存
+  </button>
+);
+```
+
 ## 複数のEffectを優先度順に実行してから保存する
 
 各Effectは `registerAsyncTask(factory, { priority })` で登録します。同じストア内で、待機中の優先度付きタスクを数値の大きい順に1件ずつ実行します。同点は登録順です。最初のタスクは次のマイクロタスクで選ぶため、同期的に続くEffectの登録も比較できます。処理中に追加されたタスクは次の選択から対象になります。
