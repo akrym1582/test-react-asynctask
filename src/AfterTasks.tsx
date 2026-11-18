@@ -336,7 +336,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   // 条件が変わるたびにrevisionを進め、Hook側で再レンダーの必要性を判定します。
   let revision = 0;
   let owner: ActionOwner | null = null;
-  let queuedActions: Array<() => void> = [];
+  let queuedActions: { key: object; start: () => void }[] = [];
   let startingActions = false;
 
   function startQueuedActions() {
@@ -346,7 +346,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     try {
       // 開始前に同期エラーになった要求も飛ばし、残りを呼び出し順に処理します。
       while (!owner && !disposed && queuedActions.length > 0) {
-        queuedActions.shift()?.();
+        queuedActions.shift()?.start();
       }
     } finally {
       startingActions = false;
@@ -761,14 +761,14 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     get hasPendingTasks() {
       return actionSnapshot.hasPendingTasks;
     },
-    requestAction(start: () => void, enqueue: boolean) {
+    requestAction(key: object, start: () => void, enqueue: boolean) {
       if (disposed || (owner && !enqueue)) return;
-      queuedActions.push(start);
+      queuedActions.push({ key, start });
       startQueuedActions();
     },
 
-    cancelQueuedActions(start: () => void) {
-      queuedActions = queuedActions.filter((queued) => queued !== start);
+    cancelQueuedActions(key: object) {
+      queuedActions = queuedActions.filter((queued) => queued.key !== key);
     },
 
     beginAction(): ActionOwner | null {
@@ -823,14 +823,21 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
 export type AfterTasksStore = ReturnType<typeof createAfterTasksStore>;
 
 /** actionを指定したuseAfterTasksから取得できる実行操作と状態です。 */
-export type AfterTasksExecution = AfterTasksSnapshot & {
-  /**
-   * イベント用の実行予約関数。自動blurとbeforeWaitを行い、タスク完了・state反映後にactionを呼びます。
-   * 同じProviderの実行中は呼び出し順に予約します。enqueue:falseなら処理中の要求をスキップします。
-   * @example <button onClick={runAfterTasks} disabled={isRunning}>保存</button>
-   */
-  runAfterTasks: (request?: { enqueue?: boolean } | SyntheticEvent) => void;
-};
+type AfterTasksRequestOptions<Args extends unknown[]> = {
+  enqueue?: boolean;
+} & ([] extends Args ? { args?: Args } : { args: Args });
+
+export type AfterTasksExecution<Args extends unknown[] = []> =
+  AfterTasksSnapshot & {
+    /**
+     * 入力タスクとstate更新を待ってから、予約時のargsをactionに渡します。
+     * enqueue:falseなら処理中の要求をスキップします。
+     * @example runAfterTasks({ args: [itemId] });
+     */
+    runAfterTasks: [] extends Args
+      ? (request?: AfterTasksRequestOptions<Args> | SyntheticEvent) => void
+      : (request: AfterTasksRequestOptions<Args>) => void;
+  };
 
 // Providerがないブラウザー画面では、このモジュールを使うすべてのHookが同じstoreを参照します。
 const AfterTasksStoreContext = createContext(createAfterTasksStore());
@@ -886,13 +893,13 @@ export function useAfterTasks(): AfterTasksStore;
  * @param options 自動フォーカス解除・準備処理・期限・エラー通知の設定。onErrorは必須です。
  * @returns 登録操作、runAfterTasks、共有状態。runAfterTasksはvoidを返します。
  */
-export function useAfterTasks(
-  action: (context: AfterTasksContext) => void | Promise<void>,
+export function useAfterTasks<Args extends unknown[]>(
+  action: (context: AfterTasksContext, ...args: Args) => void | Promise<void>,
   options: AfterTasksRunOptions,
-): AfterTasksStore & AfterTasksExecution;
+): AfterTasksStore & AfterTasksExecution<Args>;
 
-export function useAfterTasks(
-  action?: (context: AfterTasksContext) => void | Promise<void>,
+export function useAfterTasks<Args extends unknown[]>(
+  action?: (context: AfterTasksContext, ...args: Args) => void | Promise<void>,
   options?: AfterTasksRunOptions,
 ) {
   const store = useAfterTasksStoreInternal();
@@ -1003,11 +1010,13 @@ export type AfterTasksRunOptions = {
  * }, { onError: error => setError(String(error)) });
  * return <button onClick={runAfterTasks} disabled={isRunning}>保存</button>;
  */
-function useAfterTasksExecution(
+function useAfterTasksExecution<Args extends unknown[]>(
   store: AfterTasksStore,
-  action: ((context: AfterTasksContext) => void | Promise<void>) | undefined,
+  action:
+    | ((context: AfterTasksContext, ...args: Args) => void | Promise<void>)
+    | undefined,
   options: AfterTasksRunOptions,
-): AfterTasksExecution {
+): AfterTasksExecution<Args> {
   const snapshot = useSyncExternalStore(
     store.subscribeSnapshot,
     store.getSnapshot,
@@ -1025,6 +1034,7 @@ function useAfterTasksExecution(
   );
   type Request = {
     owner: ActionOwner;
+    args: Args;
     revision: number;
     tasks: number;
     active: boolean;
@@ -1080,57 +1090,61 @@ function useAfterTasksExecution(
 
   const getExecution = useCommittedOptions({ enabled: !!action, waitTimeout });
 
-  const startAction = useCallback(() => {
-    const { enabled, waitTimeout } = getExecution();
-    if (!enabled) return;
+  const startAction = useCallback(
+    (args: Args) => {
+      const { enabled, waitTimeout } = getExecution();
+      if (!enabled) return;
 
-    const owner = store.beginAction();
-    if (!owner) return;
-    const current: Request = {
-      owner,
-      revision: -1,
-      tasks: -1,
-      active: true,
-      started: false,
-      notified: false,
-    };
-    pending.current = current;
-    if (waitTimeout !== null)
-      current.timer = setTimeout(() => {
-        if (!current.active || current.started) return;
-        fail(
-          current,
-          new AfterTasksError(
-            "timeout",
-            "入力の確定待機がタイムアウトしました",
-            { requestId: owner.id },
-          ),
-        );
+      const owner = store.beginAction();
+      if (!owner) return;
+      const current: Request = {
+        owner,
+        args,
+        revision: -1,
+        tasks: -1,
+        active: true,
+        started: false,
+        notified: false,
+      };
+      pending.current = current;
+      if (waitTimeout !== null)
+        current.timer = setTimeout(() => {
+          if (!current.active || current.started) return;
+          fail(
+            current,
+            new AfterTasksError(
+              "timeout",
+              "入力の確定待機がタイムアウトしました",
+              { requestId: owner.id },
+            ),
+          );
+          current.active = false;
+          pending.current = null;
+          owner.controller.abort();
+          store.cancelInputs();
+          store.release(owner);
+        }, waitTimeout);
+      try {
+        const currentOptions = getOptions();
+        // この要求の順番が来てからblurします。先行の保存中は入力に触れません。
+        if (currentOptions.blurActiveElement !== false) {
+          const active = document.activeElement;
+          if (active instanceof HTMLElement) active.blur();
+        }
+        if (!current.active || pending.current !== current) return;
+        synchronous(currentOptions.beforeWait?.(), "beforeWait");
+        store.setPhase(owner, "waiting");
+        prepare(current);
+      } catch (error) {
+        clearTimeout(current.timer);
+        fail(current, error);
         current.active = false;
         pending.current = null;
-        owner.controller.abort();
-        store.cancelInputs();
         store.release(owner);
-      }, waitTimeout);
-    try {
-      const currentOptions = getOptions();
-      // この要求の順番が来てからblurします。先行の保存中は入力に触れません。
-      if (currentOptions.blurActiveElement !== false) {
-        const active = document.activeElement;
-        if (active instanceof HTMLElement) active.blur();
       }
-      if (!current.active || pending.current !== current) return;
-      synchronous(currentOptions.beforeWait?.(), "beforeWait");
-      store.setPhase(owner, "waiting");
-      prepare(current);
-    } catch (error) {
-      clearTimeout(current.timer);
-      fail(current, error);
-      current.active = false;
-      pending.current = null;
-      store.release(owner);
-    }
-  }, [store, getExecution, getOptions, fail, prepare]);
+    },
+    [store, getExecution, getOptions, fail, prepare],
+  );
 
   useLayoutEffect(
     () => () => {
@@ -1148,11 +1162,16 @@ function useAfterTasksExecution(
   );
 
   const runAfterTasks = useCallback(
-    (request?: { enqueue?: boolean } | SyntheticEvent) => {
+    (request?: AfterTasksRequestOptions<Args> | SyntheticEvent) => {
       if (!getExecution().enabled) return;
       const skip =
         request != null && "enqueue" in request && request.enqueue === false;
-      store.requestAction(startAction, !skip);
+
+      // 呼び出しごとの引数をコピーして、順番が来るまで保持します。
+      const values = request && "args" in request ? request.args : undefined;
+      // 配列をコピーしても要素数と型は元のタプルと同じです。
+      const args = values ? (values.slice() as Args) : ([] as unknown as Args);
+      store.requestAction(startAction, () => startAction(args), !skip);
     },
     [store, startAction, getExecution],
   );
@@ -1194,10 +1213,13 @@ function useAfterTasksExecution(
       try {
         store.assertSuccess();
         if (!action) throw new Error("保存処理が指定されていません");
-        await action({
-          signal: current.owner.controller.signal,
-          requestId: current.owner.id,
-        });
+        await action(
+          {
+            signal: current.owner.controller.signal,
+            requestId: current.owner.id,
+          },
+          ...current.args,
+        );
       } catch (error) {
         fail(current, error);
       } finally {
@@ -1211,7 +1233,7 @@ function useAfterTasksExecution(
 
   return {
     /** 保存を予約します。登録タスクとstate反映を待ってから、最新レンダーのactionを1回実行します。 */
-    runAfterTasks,
+    runAfterTasks: runAfterTasks as AfterTasksExecution<Args>["runAfterTasks"],
     /** 保存要求の待機・実行中。保存ボタンのdisabledにはisRunningを使います。 */
     isRunning: snapshot.isRunning,
     /** 登録タスクの処理中表示用。blur直後のclickを妨げないよう、保存ボタンのdisabledには使いません。 */
