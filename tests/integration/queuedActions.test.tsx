@@ -34,9 +34,7 @@ it("先行する保存の終了後に入力を待ち最新のstateで保存す�
       <>
         <button onClick={() => runAfterTasks({ args: [1] })}>保存 1</button>
         <button onClick={() => runAfterTasks({ args: [2] })}>保存 2</button>
-        <button
-          onClick={() => runAfterTasks({ args: [3], enqueue: false })}
-        >
+        <button onClick={() => runAfterTasks({ args: [3], enqueue: false })}>
           スキップ
         </button>
         <button
