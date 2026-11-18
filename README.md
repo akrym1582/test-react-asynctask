@@ -103,6 +103,8 @@ return <button onClick={runAfterTasks}>保存</button>;
 
 `runAfterTasks` を呼ぶと、同じストアのblockingタスク（順番待ちを含む）の成功とReactの再レンダーを待ち、その時点のstateで保存します。blockingタスクが失敗した場合は保存を止めて `onError` へ通知します。`priority` を省略したタスクは従来どおり即時開始します。個別の期限は登録時から数えます。開始後に取り消した場合も、元のfactoryが終了してから次の優先度付きタスクを開始します。
 
+同じ優先度内では各タスクの開始時点でコミット済みの値を使えます。優先度を切り替えるときは、前の優先度で実行したHookの登録元が再レンダーをコミットしてから次へ進みます。先行タスクが同じReactルートで通常の `setState` により更新した値を読むには、コンポーネントで `const getProfile = useLatestCommitted(profile)` とし、後続タスク内で `getProfile()` を呼んでください。`startTransition` による遅延更新や別ルートへの書き込みはこの待機の対象外です。
+
 ## 任意の入力Hookを使う
 
 `useAfterTasksField`を使えば、DOMは通常のinputや既存UIライブラリーの部品を使えます。`useAfterTasksFieldState`は同じファイルにある状態表示用Hookです。

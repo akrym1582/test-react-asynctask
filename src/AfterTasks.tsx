@@ -280,11 +280,19 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   // Mapは登録順に走査するため、同じ優先度の仕事は先着順になります。
   const queue = new Map<
     InternalTask,
-    { priority: number; run: () => Promise<void> }
+    {
+      priority: number;
+      run: () => Promise<void>;
+      waitForCommit?: () => Promise<void>;
+    }
   >();
   let draining = false;
+
   async function drainQueue() {
+    let previousPriority: number | undefined;
+    const owners = new Set<() => Promise<void>>();
     while (queue.size > 0) {
+      // 同点ならMapの登録順を保ち、より高い優先度が見つかったときだけ選び直します。
       let highest = -Infinity;
       let selected: InternalTask | undefined;
       for (const [task, job] of queue) {
@@ -295,6 +303,17 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       }
       if (!selected) break;
       const job = queue.get(selected)!;
+
+      if (job.priority !== previousPriority && owners.size > 0) {
+        // 前の優先度の登録元すべてで通常のstate更新がcommitされるのを待ちます。
+        await Promise.all(Array.from(owners, (wait) => wait()));
+        owners.clear();
+        // 待機中に追加・取消された仕事も含め、優先度を再評価します。
+        continue;
+      }
+
+      previousPriority = job.priority;
+      if (job.waitForCommit) owners.add(job.waitForCommit);
       queue.delete(selected);
       // 取消済みでも、実行を始めたfactory自体が終了するまで次を開始しません。
       await job.run();
@@ -408,6 +427,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     factory: (context: { signal: AbortSignal }) => T | Promise<T>,
     options: AfterTasksOptions<T> = {},
     scope?: TaskScope,
+    waitForCommit?: () => Promise<void>,
   ): AfterTasksHandle<T> {
     if (disposed) throw new Error("AfterTasks scope is disposed");
     const { priority } = options;
@@ -492,7 +512,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
       }
     }
     if (priority !== undefined) {
-      queue.set(internal, { priority, run });
+      queue.set(internal, { priority, run, waitForCommit });
       if (!draining) {
         draining = true;
         // 同期的に続くEffectの登録も受け取ってから、最初の1件を選びます。
@@ -597,9 +617,18 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     defaults,
     registerAsyncTask,
     /** @internal 一つのHookが登録したタスクをまとめます。子の入力欄を閉じたときは、その子の登録だけを片づけます。 */
-    createTaskScope() {
+    createTaskScope(requestCommit?: (done: () => void) => void) {
       const scope: TaskScope = new Set();
       let mounted = true;
+      let pendingCommit: (() => void) | undefined;
+
+      function waitForCommit() {
+        if (!mounted || !requestCommit) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          pendingCommit = resolve;
+          requestCommit?.(resolve);
+        });
+      }
       let used = false;
       return {
         registerAsyncTask<T>(
@@ -619,13 +648,16 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
             };
           }
           used = true;
-          return registerTask(factory, options, scope);
+          return registerTask(factory, options, scope, waitForCommit);
         },
 
         attach() {
           mounted = true;
           return () => {
             mounted = false;
+            // 登録元が消えると次のcommitは来ないため、ほかの部品の待機を解除します。
+            pendingCommit?.();
+            pendingCommit = undefined;
             if (!used) return;
             used = false;
             // 最後の取消で別フォームの待機が再開する前に、破棄する入力の失敗を解除します。
@@ -843,7 +875,16 @@ export function useAfterTasks(
   );
 
   // 入力側と保存側は同じstoreで待ち合わせますが、登録元の寿命はHookごとに管理します。
-  const scope = useMemo(() => store.createTaskScope(), [store]);
+  // 更新の目印をstateに置き、そのレンダーがcommitされたときだけキューを再開します。
+  const [commit, setCommit] = useState<{ done: () => void } | null>(null);
+  const scope = useMemo(
+    () => store.createTaskScope((done) => setCommit({ done })),
+    [store],
+  );
+
+  useLayoutEffect(() => {
+    commit?.done();
+  }, [commit]);
   useLayoutEffect(() => scope.attach(), [scope]);
   // 登録用APIの参照を安定させ、共有状態は呼び出し時点のstoreから読みます。
   const registration = useMemo(

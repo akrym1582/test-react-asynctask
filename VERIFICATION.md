@@ -2,7 +2,7 @@
 
 ## 優先度付き直列実行
 
-`tests/integration/priorityTasks.test.tsx` は、兄弟Effectの優先度順、同点の登録順、実行中の追加、待機中の取消、失敗後の続行を検証します。保存を待機中に要求し、最後のタスクまで反映したstateで保存が1回実行されることも確認します。
+`tests/integration/priorityTasks.test.tsx` は、兄弟Effectの優先度順、同点の登録順、実行中の追加、待機中の取消、失敗後の続行を検証します。保存を待機中に要求し、低優先度のタスクがgetterで先行タスクの値を読み、その結果まで反映したstateで保存が1回実行されることも確認します。
 
 ## Hookからの直接登録とunmount
 
