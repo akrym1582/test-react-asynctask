@@ -80,6 +80,16 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async cont
 
 非同期関数は結果を返し、state更新は`onCommit`へ分けます。key省略時は登録ごとにUUIDを自動生成し、すべての処理を独立して待ちます。必要な場合だけoptions.keyで固定keyを指定でき、同じkeyの再登録時には古い結果を破棄します。次のblurより前の再編集でも古い結果を破棄したい場合は、次の入力Hookを追加します。
 
+## 保存要求を順に実行する
+
+`runAfterTasks({ enqueue: true })` を呼ぶと、同じストアで先に受け付けた保存要求が終了してから処理します。その時点で登録済みの入力タスクと React の更新を待ち、最新の state で保存します。先行する保存が失敗した場合も次の要求を処理します。予約したコンポーネントがアンマウントされると、そのコンポーネントの未開始の要求を取り消します。
+
+```tsx
+<button onClick={() => runAfterTasks({ enqueue: true })}>保存を予約</button>
+```
+
+`onClick={runAfterTasks}` または引数なしで呼ぶ場合、処理中の重複要求はスキップされます。
+
 ## 複数のEffectを優先度順に実行してから保存する
 
 各Effectは `registerAsyncTask(factory, { priority })` で登録します。同じストア内で、待機中の優先度付きタスクを数値の大きい順に1件ずつ実行します。同点は登録順です。最初のタスクは次のマイクロタスクで選ぶため、同期的に続くEffectの登録も比較できます。処理中に追加されたタスクは次の選択から対象になります。

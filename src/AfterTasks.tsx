@@ -72,6 +72,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type SyntheticEvent,
 } from "react";
 
 /** ミリ秒。nullは期限なし。0/負数/NaN/Infinityは指定できません。 */
@@ -316,6 +317,23 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
   // 条件が変わるたびにrevisionを進め、Hook側で再レンダーの必要性を判定します。
   let revision = 0;
   let owner: ActionOwner | null = null;
+  let queuedActions: Array<() => void> = [];
+  let startingActions = false;
+
+  function startQueuedActions() {
+    if (startingActions) return;
+    startingActions = true;
+
+    try {
+      // 開始前に同期エラーになった要求も飛ばし、残りを呼び出し順に処理します。
+      while (!owner && !disposed && queuedActions.length > 0) {
+        queuedActions.shift()?.();
+      }
+    } finally {
+      startingActions = false;
+      if (!owner) publishAction();
+    }
+  }
   let actionSnapshot = idleAction;
   let leases = 0;
   let disposed = false;
@@ -711,6 +729,16 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     get hasPendingTasks() {
       return actionSnapshot.hasPendingTasks;
     },
+    requestAction(start: () => void, enqueue: boolean) {
+      if (disposed || (owner && !enqueue)) return;
+      queuedActions.push(start);
+      startQueuedActions();
+    },
+
+    cancelQueuedActions(start: () => void) {
+      queuedActions = queuedActions.filter((queued) => queued !== start);
+    },
+
     beginAction(): ActionOwner | null {
       if (owner || disposed) return null;
       owner = {
@@ -732,7 +760,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
     release(current: ActionOwner) {
       if (owner === current) {
         owner = null;
-        publishAction();
+        startQueuedActions();
       }
     },
 
@@ -745,6 +773,7 @@ export function createAfterTasksStore(config: AfterTasksConfig = {}) {
         queueMicrotask(() => {
           if (leases) return;
           disposed = true;
+          queuedActions = [];
           for (const participant of [...participants]) participant.dispose();
           participants.clear();
           for (const task of [...tasks.values()]) task.cancel("cancelled");
@@ -768,7 +797,7 @@ export type AfterTasksExecution = AfterTasksSnapshot & {
    * 同じProviderの実行中の重複要求は受け付けません。戻り値はvoidで、awaitでは完了を待てません。
    * @example <button onClick={runAfterTasks} disabled={isRunning}>保存</button>
    */
-  runAfterTasks: () => void;
+  runAfterTasks: (request?: { enqueue: true } | SyntheticEvent) => void;
 };
 
 // Providerがないブラウザー画面では、このモジュールを使うすべてのHookが同じstoreを参照します。
@@ -905,7 +934,7 @@ export type AfterTasksRunOptions = {
    */
   beforeWait?: () => void;
   /**
-   * 入力確定を待つ総期限（ミリ秒）。runAfterTasks受付時から計測します。
+   * 入力確定を待つ総期限（ミリ秒）。先行する保存の終了を待ってから計測します。
    * 省略時はProviderのwaitTimeoutMs（既定null・無期限）、nullなら無期限です。
    * 超過時は保存を開始せず入力処理へ取消を要求し、isRunningを解除します。
    * JavaScriptの同期処理を途中で強制終了することはできません。
@@ -982,20 +1011,6 @@ function useAfterTasksExecution(
     [getOptions],
   );
 
-  useLayoutEffect(
-    () => () => {
-      const current = pending.current;
-      if (!current) return;
-      current.active = false;
-      clearTimeout(current.timer);
-      pending.current = null;
-      current.owner.controller.abort();
-      // 保存前ならその場で解除し、開始済みなら元actionのfinallyで解除します。
-      if (!current.started) store.release(current.owner);
-    },
-    [store],
-  );
-
   // ここではactionを呼びません。完了を次のレンダーへ渡すことが重要です。
   const prepare = useCallback(
     (current: Request) => {
@@ -1024,7 +1039,7 @@ function useAfterTasksExecution(
 
   const getExecution = useCommittedOptions({ enabled: !!action, waitTimeout });
 
-  const runAfterTasks = useCallback(() => {
+  const startAction = useCallback(() => {
     const { enabled, waitTimeout } = getExecution();
     if (!enabled) return;
 
@@ -1075,6 +1090,31 @@ function useAfterTasksExecution(
       store.release(owner);
     }
   }, [store, getExecution, getOptions, fail, prepare]);
+
+  useLayoutEffect(
+    () => () => {
+      store.cancelQueuedActions(startAction);
+      const current = pending.current;
+      if (!current) return;
+      current.active = false;
+      clearTimeout(current.timer);
+      pending.current = null;
+      current.owner.controller.abort();
+      // 保存前ならその場で解除し、開始済みなら元actionのfinallyで解除します。
+      if (!current.started) store.release(current.owner);
+    },
+    [store, startAction],
+  );
+
+  const runAfterTasks = useCallback(
+    (request?: { enqueue: true } | SyntheticEvent) => {
+      if (!getExecution().enabled) return;
+      // Reactのイベントを直接受け取った場合は、通常の重複排除を適用します。
+      const enqueue = request != null && "enqueue" in request && request.enqueue;
+      store.requestAction(startAction, enqueue);
+    },
+    [store, startAction, getExecution],
+  );
 
   useEffect(() => {
     const current = pending.current;
