@@ -80,6 +80,29 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async cont
 
 非同期関数は結果を返し、state更新は`onCommit`へ分けます。key省略時は登録ごとにUUIDを自動生成し、すべての処理を独立して待ちます。必要な場合だけoptions.keyで固定keyを指定でき、同じkeyの再登録時には古い結果を破棄します。次のblurより前の再編集でも古い結果を破棄したい場合は、次の入力Hookを追加します。
 
+## 複数のEffectを優先度順に実行してから保存する
+
+各Effectは `registerAsyncTask(factory, { priority })` で登録します。同じストア内で、待機中の優先度付きタスクを数値の大きい順に1件ずつ実行します。同点は登録順です。最初のタスクは次のマイクロタスクで選ぶため、同期的に続くEffectの登録も比較できます。処理中に追加されたタスクは次の選択から対象になります。
+
+```tsx
+const { registerAsyncTask, runAfterTasks } = useAfterTasks(
+  () => save(profile),
+  { onError: console.error },
+);
+
+useEffect(() => {
+  const task = registerAsyncTask(({ signal }) => loadProfile(userId, signal), {
+    priority: 10,
+    onCommit: setProfile,
+  });
+  return task.cancel;
+}, [registerAsyncTask, userId]);
+
+return <button onClick={runAfterTasks}>保存</button>;
+```
+
+`runAfterTasks` を呼ぶと、同じストアのblockingタスク（順番待ちを含む）の成功とReactの再レンダーを待ち、その時点のstateで保存します。blockingタスクが失敗した場合は保存を止めて `onError` へ通知します。`priority` を省略したタスクは従来どおり即時開始します。個別の期限は登録時から数えます。開始後に取り消した場合も、元のfactoryが終了してから次の優先度付きタスクを開始します。
+
 ## 任意の入力Hookを使う
 
 `useAfterTasksField`を使えば、DOMは通常のinputや既存UIライブラリーの部品を使えます。`useAfterTasksFieldState`は同じファイルにある状態表示用Hookです。

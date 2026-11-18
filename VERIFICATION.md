@@ -1,5 +1,9 @@
 # 検証結果
 
+## 優先度付き直列実行
+
+`tests/integration/priorityTasks.test.tsx` は、兄弟Effectの優先度順、同点の登録順、実行中の追加、待機中の取消、失敗後の続行を検証します。保存を待機中に要求し、最後のタスクまで反映したstateで保存が1回実行されることも確認します。
+
 ## Hookからの直接登録とunmount
 
 `tests/integration/globalStore.test.tsx` で、登録元を閉じると別ルートの保存が再開し、残ったフォームの背景処理は続くことを確認します。同じkeyの別登録のエラー、登録処理中のunmount、古いコールバック、同じProvider内の兄弟とStrictModeでの再接続も対象です。画面切替はJSDOM上のmount・unmountで再現しています。

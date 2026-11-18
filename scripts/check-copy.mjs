@@ -39,7 +39,7 @@ function Example() {
   // @ts-expect-error 任意の入力管理本体を中心ファイルに戻さない
   tasks.mountField("name", "", () => ({}));
   tasks.registerAsyncTask(async () => "ok", {
-    timeoutMs: null, onCommit: value => { const text: string = value; },
+    priority: 10, timeoutMs: null, onCommit: value => { const text: string = value; },
   });
   tasks.registerAsyncTask(async () => "ok");
   tasks.registerAsyncTask(async () => "ok", { key: "name" });
