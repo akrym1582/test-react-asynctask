@@ -9,6 +9,7 @@ import {
 import { useEffect, useState } from "react";
 import { afterEach, expect, it } from "vitest";
 import { AfterTasksProvider, useAfterTasks } from "../../src/AfterTasks";
+import { useLatestCommitted } from "../../src/useLatestCommitted";
 import { deferred, flush } from "../helpers";
 
 afterEach(cleanup);
@@ -91,6 +92,7 @@ it("優先度順に確定した最新のstateで最後に保存する", async ()
   const order: string[] = [];
   function Form() {
     const [value, setValue] = useState("");
+    const getValue = useLatestCommitted(value);
     const { registerAsyncTask, runAfterTasks } = useAfterTasks(
       () => {
         order.push("save:" + value);
@@ -98,11 +100,11 @@ it("優先度順に確定した最新のstateで最後に保存する", async ()
       { onError: () => order.push("error") },
     );
     useEffect(() => {
-      const low = registerAsyncTask(() => "low", {
+      const low = registerAsyncTask(() => getValue() + "-low", {
         priority: 1,
         onCommit: (name) => {
           order.push(name);
-          setValue((prev) => prev + name);
+          setValue(name);
         },
       });
       const high = registerAsyncTask(
@@ -122,7 +124,7 @@ it("優先度順に確定した最新のstateで最後に保存する", async ()
         low.cancel();
         high.cancel();
       };
-    }, [registerAsyncTask]);
+    }, [getValue, registerAsyncTask]);
     return <button onClick={runAfterTasks}>保存</button>;
   }
   render(
@@ -134,5 +136,7 @@ it("優先度順に確定した最新のstateで最後に保存する", async ()
   await flush();
   expect(order).toEqual([]);
   gate.resolve();
-  await waitFor(() => expect(order).toEqual(["high", "low", "save:highlow"]));
+  await waitFor(() =>
+    expect(order).toEqual(["high", "high-low", "save:high-low"]),
+  );
 });
