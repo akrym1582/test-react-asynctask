@@ -765,10 +765,11 @@ describe("APIエラーを呼び出し側で扱う保存処理", () => {
     fireEvent.click(screen.getByText("保存"));
     expect(action).toHaveBeenCalledTimes(1);
     await act(async () => saving.resolve());
+    expect(action).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("status").textContent).toBe("idle");
     fireEvent.click(screen.getByText("保存"));
     await flush();
-    expect(action).toHaveBeenCalledTimes(2);
+    expect(action).toHaveBeenCalledTimes(3);
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
