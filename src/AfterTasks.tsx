@@ -1169,7 +1169,8 @@ function useAfterTasksExecution<Args extends unknown[]>(
 
       // 呼び出しごとの引数をコピーして、順番が来るまで保持します。
       const values = request && "args" in request ? request.args : undefined;
-      const args = [...(values ?? [])] as Args;
+      // 配列をコピーしても要素数と型は元のタプルと同じです。
+      const args = values ? (values.slice() as Args) : ([] as unknown as Args);
       store.requestAction(startAction, () => startAction(args), !skip);
     },
     [store, startAction, getExecution],
