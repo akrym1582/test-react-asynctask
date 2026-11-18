@@ -14,7 +14,7 @@ import { deferred, flush } from "../helpers";
 afterEach(cleanup);
 
 // 保存中にキューを無効にした要求と既定の要求を行い、その後から入力タスクを登録します。
-// キューを無効にした要求はスキップされ、次の保存は先行保存と入力の完了後に新しい値で実行されます。
+// 次の保存は先行保存と入力の完了を待ち、予約時のIDと最新のstateを使います。
 it("先行する保存の終了後に入力を待ち最新のstateで保存する", async () => {
   const first = deferred<void>();
   const input = deferred<string>();
@@ -57,7 +57,7 @@ it("先行する保存の終了後に入力を待ち最新のstateで保存す�
   await waitFor(() => expect(saved).toEqual(["1:初期値"]));
 
   fireEvent.click(screen.getByRole("button", { name: "スキップ" }));
-  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存 2" }));
   fireEvent.click(screen.getByRole("button", { name: "更新" }));
   first.resolve();
   await flush();
