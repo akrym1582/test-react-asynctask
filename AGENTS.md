@@ -29,7 +29,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 - `runAfterTasks`はイベントハンドラーとして使うvoid関数です。`await runAfterTasks()`で保存終了を待てると説明しないでください。成功後の処理はaction内へ書きます。
 - 3種類のタイムアウトはすべて既定で`null`（無期限）です。タイムアウトの`null`は無期限、`undefined`は既定値を継承します。0・負数・NaN・Infinityは無効です。無期限でも取消とunmountの後始末は必要です。
 
-- `blurActiveElement`の既定値はtrueです。重複排除後、beforeWaitより前に現在のHTML要素をblurします。falseはフォーカスを維持します。対象がProviderのDOM範囲に限定されない点を説明してください。
+- `blurActiveElement`の既定値はtrueです。保存の順番が来てから、beforeWaitより前に現在のHTML要素をblurします。falseはフォーカスを維持します。対象がProviderのDOM範囲に限定されない点を説明してください。
 
 - `hasPendingTasks`はpendingの登録タスクが1件以上ある状態です。背景処理も含めて全子孫へ共有し、dirty入力や保存actionだけの実行は含めません。`isRunning`は保存要求の待機・実行中を示します。blur直後のclickを妨げないよう保存ボタンの無効化にhasPendingTasksを使わないでください。
 
@@ -38,7 +38,7 @@ React / TypeScriptで、非同期の入力処理を待った後、最新のcommi
 - 単純なPromise待機だけでは古いclosureは更新されません。タスク完了後に再レンダーし、そのレンダーに対応するactionを呼びます。
 - 入力の再編集、取消、期限切れ、unmount、同じkeyでの再登録後は、古い結果をonCommitへ渡しません。
 - 待機中に追加されたタスクとdirty入力も保存前に確認します。
-- 保存要求の重複をProvider単位で防ぎます。actionの成功・失敗後にisRunningを解除します。保存期限ではsignalで中断要求とonError通知を行い、元actionの終了まではisRunningを維持します。API側でcatch済みなら共通側は再通知しません。
+- 保存要求をProvider単位で呼び出し順に処理します。enqueue:falseの要求は処理中にスキップします。次の要求がなければactionの成功・失敗後にisRunningを解除します。保存期限ではsignalで中断要求とonError通知を行い、元actionの終了まではisRunningを維持します。API側でcatch済みなら共通側は再通知しません。
 - React 18.3/19のブラウザー実行とStrictModeに対応します。破棄されたレンダーの値をlatest getterから公開しません。
 - SyntheticEventの必要な値はイベント中に取得し、preventDefaultも同期的に実行します。
 - FirefoxのPlaywright `fill()`はcompositionイベントを発生させるため、通常のキー入力を検証するケースは`pressSequentially()`を使います。IMEケースは分けます。合成イベントを実OSの日本語IME検証済みとは扱いません。

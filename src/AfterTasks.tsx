@@ -794,10 +794,10 @@ export type AfterTasksStore = ReturnType<typeof createAfterTasksStore>;
 export type AfterTasksExecution = AfterTasksSnapshot & {
   /**
    * イベント用の実行予約関数。自動blurとbeforeWaitを行い、タスク完了・state反映後にactionを呼びます。
-   * 同じProviderの実行中の重複要求は受け付けません。戻り値はvoidで、awaitでは完了を待てません。
+   * 同じProviderの実行中は呼び出し順に予約します。enqueue:falseなら処理中の要求をスキップします。
    * @example <button onClick={runAfterTasks} disabled={isRunning}>保存</button>
    */
-  runAfterTasks: (request?: { enqueue: true } | SyntheticEvent) => void;
+  runAfterTasks: (request?: { enqueue?: boolean } | SyntheticEvent) => void;
 };
 
 // Providerがないブラウザー画面では、このモジュールを使うすべてのHookが同じstoreを参照します。
@@ -1073,7 +1073,7 @@ function useAfterTasksExecution(
       }, waitTimeout);
     try {
       const currentOptions = getOptions();
-      // 重複要求の排除後にblurします。blurによる再入でも二重保存を開始させません。
+      // この要求の順番が来てからblurします。先行の保存中は入力に触れません。
       if (currentOptions.blurActiveElement !== false) {
         const active = document.activeElement;
         if (active instanceof HTMLElement) active.blur();
@@ -1107,12 +1107,11 @@ function useAfterTasksExecution(
   );
 
   const runAfterTasks = useCallback(
-    (request?: { enqueue: true } | SyntheticEvent) => {
+    (request?: { enqueue?: boolean } | SyntheticEvent) => {
       if (!getExecution().enabled) return;
-      // Reactのイベントを直接受け取った場合は、通常の重複排除を適用します。
-      const enqueue =
-        request != null && "enqueue" in request && request.enqueue;
-      store.requestAction(startAction, enqueue);
+      const skip =
+        request != null && "enqueue" in request && request.enqueue === false;
+      store.requestAction(startAction, !skip);
     },
     [store, startAction, getExecution],
   );

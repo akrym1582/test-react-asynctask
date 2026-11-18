@@ -7,7 +7,7 @@
 
 ブラウザーでは、Providerを置かずに入力欄で `useAfterTasks()`、保存ボタンで `useAfterTasks(action, options)` を呼べます。同じモジュールを使うコンポーネントはReactルートが別でも、登録タスク・エラー・保存の実行状態を共有します。共有storeは画面遷移や個々のコンポーネントのunmountをまたいで存続します。
 
-1つの保存対象を複数の部品やReactルートから編集し、入力確定と二重保存防止を共有したい場合はProviderを省略できます。フォームBの保存は、同じstoreでフォームAが登録した未完了タスク（既定はblocking）も待ちます。`blocking: false` の背景タスクは `hasPendingTasks` に含まれますが、保存を待たせません。保存の待機中・実行中は両方のフォームで `isRunning` がtrueになり、その間の別の保存要求は受け付けません。
+1つの保存対象を複数の部品やReactルートから編集し、入力確定と保存の実行順を共有したい場合はProviderを省略できます。フォームBの保存は、同じstoreでフォームAが登録した未完了タスク（既定はblocking）も待ちます。`blocking: false` の背景タスクは `hasPendingTasks` に含まれますが、保存を待たせません。保存の待機中・実行中は両方のフォームで `isRunning` がtrueになり、その間の別の保存要求は呼び出し順に待機します。
 
 独立して保存するフォームは、**入力と保存ボタンを一組ずつ**別の `AfterTasksProvider` で囲んでください。同じstoreで同じ固定keyを直接登録すると前のタスクが取り消され、blockingタスクの失敗は別フォームの保存時にもその保存側の `onError` へ届きます。keyだけ分けても、待機とエラーは分離されません。
 
@@ -82,13 +82,13 @@ const { registerAsyncTask, runAfterTasks, isRunning } = useAfterTasks(async cont
 
 ## 保存要求を順に実行する
 
-`runAfterTasks({ enqueue: true })` を呼ぶと、同じストアで先に受け付けた保存要求が終了してから処理します。その時点で登録済みの入力タスクと React の更新を待ち、最新の state で保存します。先行する保存が失敗した場合も次の要求を処理します。予約したコンポーネントがアンマウントされると、そのコンポーネントの未開始の要求を取り消します。
+`runAfterTasks()` を呼ぶと、同じストアで先に受け付けた保存要求が終了してから処理します。その時点で登録済みの入力タスクと React の更新を待ち、最新の state で保存します。先行する保存が失敗した場合も次の要求を処理します。予約したコンポーネントがアンマウントされると、そのコンポーネントの未開始の要求を取り消します。
 
 ```tsx
-<button onClick={() => runAfterTasks({ enqueue: true })}>保存を予約</button>
+<button onClick={runAfterTasks}>保存を予約</button>
 ```
 
-`onClick={runAfterTasks}` または引数なしで呼ぶ場合、処理中の重複要求はスキップされます。
+`runAfterTasks({ enqueue: false })` は、同じストアが保存を処理中なら今回の要求をスキップします。
 
 ## 複数のEffectを優先度順に実行してから保存する
 
@@ -345,7 +345,7 @@ const { runAfterTasks, isRunning } = useAfterTasks(() => save(value), {
 
 ## 自動フォーカス解除のオプション
 
-`blurActiveElement`は省略時trueです。実行順序は、重複要求の排除 → フォーカス中のHTML要素のblur → beforeWait → 入力確定・タスク待機 → 再レンダー → actionです。
+`blurActiveElement`は省略時trueです。実行順序は、保存要求の順番待ち → フォーカス中のHTML要素のblur → beforeWait → 入力確定・タスク待機 → 再レンダー → actionです。
 
 対象は`document.activeElement`で、Provider内のフォームに限定されません。別フォームやダイアログの入力・保存ボタンからもフォーカスが外れる場合があります。iframeやShadow DOM内部を再帰的に探索しません。
 

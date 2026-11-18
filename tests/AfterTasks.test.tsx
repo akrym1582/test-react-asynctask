@@ -285,7 +285,7 @@ it.each([undefined, true, false])(
                 key: "name",
                 onCommit: setValue,
               });
-              runAfterTasks(); // blurから再入しても、同じ要求を重複実行しない
+              runAfterTasks({ enqueue: false }); // blurから再入しても、同じ要求を重複実行しない
             }}
           />
           <button onClick={runAfterTasks}>save</button>

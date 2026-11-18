@@ -228,9 +228,9 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
     );
   });
 
-  // 確認する状況: 同じイベント内で2つのHookのrunAfterTasksを連続して呼びます。
+  // 確認する状況: 同じイベント内で2つのHookから要求し、後の呼び出しではキューを無効にします。
   // 期待する結果: 先に受け付けたactionだけを開始し、後のactionは実行しません。
-  it("同じProviderの別Hookから同時に要求しても保存を1つに制限する", async () => {
+  it("キュー無効なら同じProviderの別Hookからの重複要求をスキップする", async () => {
     const saving = deferred<void>();
     const first = vi.fn(() => saving.promise);
     const second = vi.fn();
@@ -241,7 +241,7 @@ describe("追加タスク・重複要求・Provider間の独立性", () => {
         <button
           onClick={() => {
             a.runAfterTasks();
-            b.runAfterTasks();
+            b.runAfterTasks({ enqueue: false });
           }}
         >
           both
