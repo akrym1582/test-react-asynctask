@@ -1110,7 +1110,8 @@ function useAfterTasksExecution(
     (request?: { enqueue: true } | SyntheticEvent) => {
       if (!getExecution().enabled) return;
       // Reactのイベントを直接受け取った場合は、通常の重複排除を適用します。
-      const enqueue = request != null && "enqueue" in request && request.enqueue;
+      const enqueue =
+        request != null && "enqueue" in request && request.enqueue;
       store.requestAction(startAction, enqueue);
     },
     [store, startAction, getExecution],
